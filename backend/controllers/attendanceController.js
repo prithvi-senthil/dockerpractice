@@ -1,7 +1,6 @@
 const db = require('../config/db');
 const { isOTPValid } = require('../utils/otpGenerator');
 
-// Mark START attendance (Student enters OTP)
 exports.markStart = async (req, res) => {
   try {
     const { activityId, otp } = req.body;
@@ -11,7 +10,6 @@ exports.markStart = async (req, res) => {
       return res.status(400).json({ error: 'Activity ID and OTP required' });
     }
 
-    // Get activity and verify OTP
     const [activities] = await db.query(
       'SELECT start_otp, otp_generated_at FROM activities WHERE id = ?',
       [activityId]
@@ -23,19 +21,18 @@ exports.markStart = async (req, res) => {
 
     const activity = activities[0];
 
-    // Verify OTP
     if (activity.start_otp !== otp) {
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
-    // Check OTP expiry
     if (!isOTPValid(activity.otp_generated_at)) {
       return res.status(400).json({ error: 'OTP expired' });
     }
 
     // Check if student is enrolled
     const [enrollment] = await db.query(
-      'SELECT id FROM activity_enrollments WHERE activity_id = ? AND student_id = ?',
+      `SELECT id FROM master_relationship_mapping 
+       WHERE user = ? AND relation_user = ? AND relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')`,
       [activityId, studentId]
     );
 
@@ -43,7 +40,6 @@ exports.markStart = async (req, res) => {
       return res.status(403).json({ error: 'Not enrolled in this activity' });
     }
 
-    // Check if already marked
     const [existing] = await db.query(
       'SELECT id FROM attendance_records WHERE activity_id = ? AND student_id = ?',
       [activityId, studentId]
@@ -53,7 +49,6 @@ exports.markStart = async (req, res) => {
       return res.status(400).json({ error: 'Attendance already marked' });
     }
 
-    // Mark attendance
     await db.query(
       `INSERT INTO attendance_records (activity_id, student_id, start_marked_at, status, created_at) 
        VALUES (?, ?, NOW(), 'present', NOW())`,
@@ -67,7 +62,6 @@ exports.markStart = async (req, res) => {
   }
 };
 
-// Mark END attendance (Student enters end OTP)
 exports.markEnd = async (req, res) => {
   try {
     const { activityId, otp } = req.body;
@@ -77,7 +71,6 @@ exports.markEnd = async (req, res) => {
       return res.status(400).json({ error: 'Activity ID and OTP required' });
     }
 
-    // Get activity and verify end OTP
     const [activities] = await db.query(
       'SELECT end_otp FROM activities WHERE id = ?',
       [activityId]
@@ -91,7 +84,6 @@ exports.markEnd = async (req, res) => {
       return res.status(400).json({ error: 'Invalid end OTP' });
     }
 
-    // Get attendance record
     const [records] = await db.query(
       'SELECT id, start_marked_at FROM attendance_records WHERE activity_id = ? AND student_id = ?',
       [activityId, studentId]
@@ -102,13 +94,10 @@ exports.markEnd = async (req, res) => {
     }
 
     const record = records[0];
-
-    // Calculate duration
     const startTime = new Date(record.start_marked_at);
     const endTime = new Date();
     const durationMinutes = Math.floor((endTime - startTime) / 1000 / 60);
 
-    // Update record
     await db.query(
       `UPDATE attendance_records 
        SET end_marked_at = NOW(), duration_minutes = ? 
@@ -126,7 +115,6 @@ exports.markEnd = async (req, res) => {
   }
 };
 
-// Get student's attendance history
 exports.getMyAttendance = async (req, res) => {
   try {
     const studentId = req.user.id;
@@ -134,10 +122,10 @@ exports.getMyAttendance = async (req, res) => {
 
     let query = `
       SELECT ar.*, a.title, a.start_time, a.end_time, a.location,
-             u.name as activity_owner
+             u.name as faculty_name
       FROM attendance_records ar
       JOIN activities a ON ar.activity_id = a.id
-      JOIN users u ON a.owner_id = u.id
+      JOIN users u ON a.faculty_id = u.id
       WHERE ar.student_id = ?
     `;
     const params = [studentId];
@@ -157,7 +145,6 @@ exports.getMyAttendance = async (req, res) => {
   }
 };
 
-// Get attendance summary for student
 exports.getAttendanceSummary = async (req, res) => {
   try {
     const studentId = req.user.id;
@@ -181,7 +168,6 @@ exports.getAttendanceSummary = async (req, res) => {
   }
 };
 
-// Get activity attendance report (Faculty only)
 exports.getActivityReport = async (req, res) => {
   try {
     const { id } = req.params;
@@ -189,10 +175,10 @@ exports.getActivityReport = async (req, res) => {
     const [report] = await db.query(
       `SELECT u.id, u.name, u.email,
               ar.status, ar.start_marked_at, ar.end_marked_at, ar.duration_minutes
-       FROM activity_enrollments ae
-       JOIN users u ON ae.student_id = u.id
-       LEFT JOIN attendance_records ar ON ar.activity_id = ae.activity_id AND ar.student_id = u.id
-       WHERE ae.activity_id = ?
+       FROM master_relationship_mapping mrm
+       JOIN users u ON mrm.relation_user = u.id
+       LEFT JOIN attendance_records ar ON ar.activity_id = mrm.user AND ar.student_id = u.id
+       WHERE mrm.user = ? AND mrm.relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')
        ORDER BY u.name`,
       [id]
     );

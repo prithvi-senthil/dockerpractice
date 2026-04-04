@@ -16,7 +16,6 @@ const auth = (req, res, next) => {
   }
 };
 
-// Role-based middleware
 const requireRole = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.user_type)) {

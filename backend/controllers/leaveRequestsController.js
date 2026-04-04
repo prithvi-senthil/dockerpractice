@@ -1,6 +1,5 @@
 const db = require('../config/db');
 
-// Create leave request (Student)
 exports.create = async (req, res) => {
   try {
     const { activity_id, leave_date, reason } = req.body;
@@ -26,18 +25,17 @@ exports.create = async (req, res) => {
   }
 };
 
-// Get all leave requests (Faculty sees all, Student sees own)
 exports.getAll = async (req, res) => {
   try {
     const userId = req.user.id;
     const userType = req.user.user_type;
 
     let query = `
-      SELECT lr.*, u.name as student_name, a.title as activity_title, owner.name as activity_owner
+      SELECT lr.*, u.name as student_name, a.title as activity_title, faculty.name as faculty_name
       FROM leave_requests lr
       JOIN users u ON lr.student_id = u.id
       JOIN activities a ON lr.activity_id = a.id
-      JOIN users owner ON a.owner_id = owner.id
+      JOIN users faculty ON a.faculty_id = faculty.id
       WHERE 1=1
     `;
     const params = [];
@@ -46,7 +44,7 @@ exports.getAll = async (req, res) => {
       query += ` AND lr.student_id = ?`;
       params.push(userId);
     } else if (userType === 'faculty') {
-      query += ` AND a.owner_id = ?`;
+      query += ` AND a.faculty_id = ?`;
       params.push(userId);
     }
 
@@ -60,7 +58,6 @@ exports.getAll = async (req, res) => {
   }
 };
 
-// Approve/Reject leave (Faculty only)
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -71,9 +68,8 @@ exports.updateStatus = async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    // Check if faculty owns the activity
     const [leave] = await db.query(
-      `SELECT lr.*, a.owner_id 
+      `SELECT lr.*, a.faculty_id 
        FROM leave_requests lr 
        JOIN activities a ON lr.activity_id = a.id 
        WHERE lr.id = ?`,
@@ -84,17 +80,15 @@ exports.updateStatus = async (req, res) => {
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    if (leave[0].owner_id !== userId) {
+    if (leave[0].faculty_id !== userId) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    // Update leave status
     await db.query(
       `UPDATE leave_requests SET status = ?, remarks = ?, updated_at = NOW() WHERE id = ?`,
       [status, remarks, id]
     );
 
-    // If approved, mark attendance as 'on_leave'
     if (status === 'approved') {
       await db.query(
         `INSERT INTO attendance_records (activity_id, student_id, status, created_at) 

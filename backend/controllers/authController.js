@@ -2,28 +2,23 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 
-// Register new user
 exports.register = async (req, res) => {
   try {
     const { name, email, password, user_type } = req.body;
 
-    // Validate
     if (!name || !email || !password || !user_type) {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    // Check if user exists
     const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
     if (existing.length > 0) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert user
     const [result] = await db.query(
-      'INSERT INTO users (name, email, password, user_type, is_active, created_at) VALUES (?, ?, ?, ?, TRUE, NOW())',
+      'INSERT INTO users (name, email, password, user_type, is_active, created_at) VALUES (?, ?, ?, ?, 1, NOW())',
       [name, email, hashedPassword, user_type]
     );
 
@@ -37,7 +32,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// Login
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -46,8 +40,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    // Find user
-    const [users] = await db.query('SELECT * FROM users WHERE email = ? AND is_active = TRUE', [email]);
+    const [users] = await db.query('SELECT * FROM users WHERE email = ? AND is_active = 1', [email]);
     
     if (users.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -55,16 +48,14 @@ exports.login = async (req, res) => {
 
     const user = users[0];
 
-    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Generate token
     const token = jwt.sign(
       {
-        id: user.id,
+        id: user.id.toString(),
         email: user.email,
         user_type: user.user_type,
         name: user.name
@@ -76,7 +67,7 @@ exports.login = async (req, res) => {
     res.json({
       token,
       user: {
-        id: user.id,
+        id: user.id.toString(),
         name: user.name,
         email: user.email,
         user_type: user.user_type
@@ -88,7 +79,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// Get current user
 exports.getCurrentUser = async (req, res) => {
   try {
     const [users] = await db.query('SELECT id, name, email, user_type FROM users WHERE id = ?', [req.user.id]);
