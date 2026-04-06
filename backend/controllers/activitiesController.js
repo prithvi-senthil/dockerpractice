@@ -1,5 +1,75 @@
 const db = require('../config/db');
 const { generateOTP, isOTPValid } = require('../utils/otpGenerator');
+const { storeOTP, verifyOTP, getActiveOTP } = require('../config/redis');
+
+// Generate START OTP (Faculty only)
+exports.generateStartOTP = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Check ownership
+    const [activities] = await db.query('SELECT owner_id FROM activities WHERE id = ?', [id]);
+    if (activities.length === 0) {
+      return res.status(404).json({ error: 'Activity not found' });
+    }
+    if (activities[0].owner_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const otp = generateOTP();
+    await storeOTP(id, otp, userId);
+
+    await db.query(
+      `UPDATE activities SET start_otp = ?, otp_generated_at = NOW(), status = 'ongoing' WHERE id = ?`,
+      [otp, id]
+    );
+
+    res.json({ 
+      otp, 
+      message: 'Start OTP generated successfully',
+      expires_in_seconds: 300
+    });
+  } catch (error) {
+    console.error('Generate OTP error:', error);
+    res.status(500).json({ error: 'Failed to generate OTP' });
+  }
+};
+
+// Generate END OTP (Faculty only)
+exports.generateEndOTP = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const [activities] = await db.query('SELECT owner_id FROM activities WHERE id = ?', [id]);
+    if (activities.length === 0) {
+      return res.status(404).json({ error: 'Activity not found' });
+    }
+    if (activities[0].owner_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    const otp = generateOTP();
+    await storeOTP(`${id}-end`, otp, userId); // Different key for end OTP
+
+    await db.query(
+      `UPDATE activities SET end_otp = ?, status = 'completed' WHERE id = ?`,
+      [otp, id]
+    );
+
+    res.json({ 
+      otp, 
+      message: 'End OTP generated successfully',
+      expires_in_seconds: 300
+    });
+  } catch (error) {
+    console.error('Generate end OTP error:', error);
+    res.status(500).json({ error: 'Failed to generate end OTP' });
+  }
+};
+
+
 
 exports.create = async (req, res) => {
   try {

@@ -1,6 +1,100 @@
 const db = require('../config/db');
 const { isOTPValid } = require('../utils/otpGenerator');
 
+const { verifyOTP } = require('../config/redis');
+
+// Mark START attendance (Student enters OTP)
+exports.markStart = async (req, res) => {
+  try {
+    const { activityId, otp } = req.body;
+    const studentId = req.user.id;
+
+    // Verify OTP
+    const verification = await verifyOTP(activityId, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ error: verification.reason });
+    }
+
+    // Check enrollment
+    const [enrollment] = await db.query(
+      'SELECT id FROM activity_enrollments WHERE activity_id = ? AND student_id = ?',
+      [activityId, studentId]
+    );
+
+    if (enrollment.length === 0) {
+      return res.status(403).json({ error: 'Not enrolled in this activity' });
+    }
+
+    // Check if already marked
+    const [existing] = await db.query(
+      'SELECT id FROM attendance_records WHERE activity_id = ? AND student_id = ?',
+      [activityId, studentId]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Start attendance already marked' });
+    }
+
+    // Mark attendance
+    await db.query(
+      `INSERT INTO attendance_records (activity_id, student_id, start_marked_at, status, created_at) 
+       VALUES (?, ?, NOW(), 'present', NOW())`,
+      [activityId, studentId]
+    );
+
+    res.json({ message: 'Start attendance marked successfully' });
+  } catch (error) {
+    console.error('Mark start error:', error);
+    res.status(500).json({ error: 'Failed to mark attendance' });
+  }
+};
+
+// Mark END attendance (Student enters end OTP)
+exports.markEnd = async (req, res) => {
+  try {
+    const { activityId, otp } = req.body;
+    const studentId = req.user.id;
+
+    // Verify END OTP (different key)
+    const verification = await verifyOTP(`${activityId}-end`, otp);
+    if (!verification.valid) {
+      return res.status(400).json({ error: verification.reason });
+    }
+
+    // Get attendance record
+    const [records] = await db.query(
+      'SELECT id, start_marked_at FROM attendance_records WHERE activity_id = ? AND student_id = ?',
+      [activityId, studentId]
+    );
+
+    if (records.length === 0) {
+      return res.status(400).json({ error: 'Start attendance not marked' });
+    }
+
+    // Calculate duration
+    const startTime = new Date(records[0].start_marked_at);
+    const endTime = new Date();
+    const durationMinutes = Math.floor((endTime - startTime) / 1000 / 60);
+
+    // Update record
+    await db.query(
+      `UPDATE attendance_records 
+       SET end_marked_at = NOW(), duration_minutes = ? 
+       WHERE id = ?`,
+      [durationMinutes, records[0].id]
+    );
+
+    res.json({ 
+      message: 'End attendance marked successfully',
+      duration: `${durationMinutes} minutes`
+    });
+  } catch (error) {
+    console.error('Mark end error:', error);
+    res.status(500).json({ error: 'Failed to mark end attendance' });
+  }
+};
+
+
 exports.markStart = async (req, res) => {
   try {
     const { activityId, otp } = req.body;

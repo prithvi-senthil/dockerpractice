@@ -8,6 +8,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 
@@ -49,6 +50,7 @@ const LoginScreen = ({ navigation }) => {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
+          editable={!loading}
         />
 
         <TextInput
@@ -57,6 +59,7 @@ const LoginScreen = ({ navigation }) => {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          editable={!loading}
         />
 
         <TouchableOpacity
@@ -64,9 +67,11 @@ const LoginScreen = ({ navigation }) => {
           onPress={handleLogin}
           disabled={loading}
         >
-          <Text style={styles.buttonText}>
-            {loading ? 'Logging in...' : 'Login'}
-          </Text>
+          {loading ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.buttonText}>Login</Text>
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.navigate('Register')}>
@@ -74,6 +79,15 @@ const LoginScreen = ({ navigation }) => {
             Don't have an account? <Text style={styles.linkBold}>Register</Text>
           </Text>
         </TouchableOpacity>
+
+        {/* Test Credentials Helper */}
+        <View style={styles.credentialsBox}>
+          <Text style={styles.credentialsTitle}>📝 Test Credentials:</Text>
+          <Text style={styles.credentialsText}>
+            Faculty: rajesh@college.edu / password123{'\n'}
+            Student: rahul@student.edu / password123
+          </Text>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -136,6 +150,25 @@ const styles = StyleSheet.create({
   linkBold: {
     color: '#007AFF',
     fontWeight: '600',
+  },
+  credentialsBox: {
+    marginTop: 30,
+    padding: 15,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  credentialsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1976D2',
+    marginBottom: 8,
+  },
+  credentialsText: {
+    fontSize: 12,
+    color: '#1565C0',
+    lineHeight: 18,
   },
 });
 
