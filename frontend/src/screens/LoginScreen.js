@@ -79,15 +79,6 @@ const LoginScreen = ({ navigation }) => {
             Don't have an account? <Text style={styles.linkBold}>Register</Text>
           </Text>
         </TouchableOpacity>
-
-        {/* Test Credentials Helper */}
-        <View style={styles.credentialsBox}>
-          <Text style={styles.credentialsTitle}>📝 Test Credentials:</Text>
-          <Text style={styles.credentialsText}>
-            Faculty: rajesh@college.edu / password123{'\n'}
-            Student: rahul@student.edu / password123
-          </Text>
-        </View>
       </View>
     </KeyboardAvoidingView>
   );

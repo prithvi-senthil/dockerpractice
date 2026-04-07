@@ -1,131 +1,373 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  StyleSheet,
-  FlatList,
+  ScrollView,
   TouchableOpacity,
-  RefreshControl,
+  StyleSheet,
+  ActivityIndicator,
   Alert,
-} from 'react-native';
-import { Calendar } from 'react-native-calendars';
-import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
-import ActivityCard from '../components/ActivityCard';
+  RefreshControl,
+  Platform,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { useAuth } from "../context/AuthContext";
+import api from "../services/api";
 
 const CalendarScreen = ({ navigation }) => {
   const { user } = useAuth();
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [activities, setActivities] = useState([]);
-  const [markedDates, setMarkedDates] = useState({});
-  const [refreshing, setRefreshing] = useState(false);
+  const [sessions, setSessions] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  const isFaculty = user?.user_type === 'faculty';
-
-  useEffect(() => {
-    fetchActivities();
-  }, []);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState("sessions");
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
-    // Update marked dates when activities change
-    const marked = {};
-    activities.forEach((activity) => {
-      const date = activity.start_time.split('T')[0];
-      marked[date] = { marked: true, dotColor: '#007AFF' };
-    });
-    marked[selectedDate] = {
-      ...marked[selectedDate],
-      selected: true,
-      selectedColor: '#007AFF',
-    };
-    setMarkedDates(marked);
-  }, [activities, selectedDate]);
+    fetchData();
+  }, [selectedDate, activeTab]);
 
-  const fetchActivities = async (date = null) => {
+  const fetchData = async () => {
     try {
-      const params = date ? { date } : {};
-      const response = await api.get('/activities', { params });
-      setActivities(response.data);
+      setLoading(true);
+      const dateStr = selectedDate.toISOString().split("T")[0];
+
+      if (activeTab === "sessions") {
+        const response = await api.get("/activities/sessions", {
+          params: { date: dateStr },
+        });
+        setSessions(response.data || []);
+      } else {
+        const response = await api.get("/activities/courses");
+        setCourses(response.data || []);
+      }
     } catch (error) {
-      console.error('Fetch activities error:', error);
-      Alert.alert('Error', 'Failed to fetch activities');
+      console.error("Fetch error:", error);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    fetchActivities(selectedDate);
+    await fetchData();
+    setRefreshing(false);
   };
 
-  const handleDayPress = (day) => {
-    setSelectedDate(day.dateString);
-    fetchActivities(day.dateString);
+  const formatDate = (date) => {
+    return date.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
-  const filteredActivities = activities.filter((activity) => {
-    const activityDate = activity.start_time.split('T')[0];
-    return activityDate === selectedDate;
-  });
+  const formatTime = (timeStr) => {
+    if (!timeStr) return "N/A";
+    const match = timeStr.match(/(\d{2}):(\d{2})/);
+    if (match) {
+      const hours = parseInt(match[1]);
+      const minutes = match[2];
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const displayHours = hours % 12 || 12;
+      return `${displayHours}:${minutes} ${ampm}`;
+    }
+    return timeStr;
+  };
 
-  const renderActivity = ({ item }) => (
-    <ActivityCard
-      activity={item}
-      onPress={() => navigation.navigate('ActivityDetail', { activityId: item.id })}
-    />
+  const getStatusColor = (status) => {
+    const colors = {
+      scheduled: "#FF9800",
+      ongoing: "#4CAF50",
+      completed: "#2196F3",
+    };
+    return colors[status] || "#9E9E9E";
+  };
+
+  const isToday = (date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
+  const handleDateChange = (event, selected) => {
+    if (Platform.OS === "android") {
+      setShowDatePicker(false);
+    }
+    if (selected) {
+      setSelectedDate(selected);
+    }
+  };
+
+  const handleDateNavigation = (offset) => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + offset);
+    setSelectedDate(newDate);
+  };
+
+  const renderSessionCard = (item) => (
+    <TouchableOpacity
+      key={item.id}
+      style={styles.sessionCard}
+      onPress={() =>
+        navigation.navigate("ActivityDetail", {
+          sessionId: item.id,
+          courseTitle: item.course_title,
+          facultyName: item.faculty_name,
+        })
+      }
+    >
+      <View style={styles.cardContent}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.courseTitle} numberOfLines={1}>
+            {item.course_title}
+          </Text>
+          <View
+            style={[
+              styles.statusBadge,
+              { backgroundColor: getStatusColor(item.status) },
+            ]}
+          >
+            <Text style={styles.statusText}>{item.status?.toUpperCase()}</Text>
+          </View>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Ionicons name="person-circle-outline" size={16} color="#666" />
+          <Text style={styles.infoText}>
+            {item.faculty_name || "Unassigned"}
+          </Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Ionicons name="time-outline" size={16} color="#666" />
+          <Text style={styles.infoText}>
+            {formatTime(item.start_time)} - {formatTime(item.end_time)}
+          </Text>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Ionicons name="people-outline" size={16} color="#666" />
+          <Text style={styles.infoText}>
+            {item.enrolled_count}/{item.max_students} enrolled
+          </Text>
+        </View>
+
+        {user?.user_type === "student" && item.status === "ongoing" && (
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: "#5B6CF6" }]}
+            onPress={() =>
+              navigation.navigate("ActivityDetail", {
+                sessionId: item.id,
+                courseTitle: item.course_title,
+              })
+            }
+          >
+            <Ionicons name="pencil" size={14} color="#fff" />
+            <Text style={styles.actionBtnText}>Mark Attendance</Text>
+          </TouchableOpacity>
+        )}
+
+        {user?.user_type === "faculty" && (
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: "#4CAF50" }]}
+            onPress={() =>
+              navigation.navigate("ActivityDetail", {
+                sessionId: item.id,
+                courseTitle: item.course_title,
+              })
+            }
+          >
+            <Ionicons name="lock-closed" size={14} color="#fff" />
+            <Text style={styles.actionBtnText}>Manage OTP</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </TouchableOpacity>
   );
+
+  const renderCourseCard = (item) => (
+    <TouchableOpacity
+      key={item.id}
+      style={styles.courseCard}
+      onPress={() =>
+        navigation.navigate("ActivityDetail", {
+          courseId: item.id,
+          courseTitle: item.title,
+        })
+      }
+    >
+      <View style={styles.cardContent}>
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.courseCode}>{item.course_code}</Text>
+            <Text style={styles.courseTitle}>{item.title}</Text>
+          </View>
+        </View>
+
+        <View style={styles.infoRow}>
+          <Ionicons name="person-circle-outline" size={16} color="#666" />
+          <Text style={styles.infoText}>
+            {item.faculty_name || "Unassigned"}
+          </Text>
+        </View>
+
+        {item.description && (
+          <Text style={styles.descriptionText} numberOfLines={2}>
+            {item.description}
+          </Text>
+        )}
+
+        <View style={styles.infoRow}>
+          <Ionicons name="people-outline" size={16} color="#666" />
+          <Text style={styles.infoText}>
+            {item.enrolled_count}/{item.max_students} enrolled
+          </Text>
+        </View>
+
+        {user?.user_type === "admin" && (
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: "#FF9800" }]}
+            onPress={() =>
+              navigation.navigate("StudentList", { courseId: item.id })
+            }
+          >
+            <Ionicons name="people-sharp" size={14} color="#fff" />
+            <Text style={styles.actionBtnText}>Manage Students</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#5B6CF6" />
+        <Text style={styles.loadingText}>Loading calendar...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Activities</Text>
-        {isFaculty && (
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => navigation.navigate('CreateActivity')}
+        <Text style={styles.headerTitle}>📅 Calendar</Text>
+      </View>
+
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "sessions" && styles.tabActive]}
+          onPress={() => setActiveTab("sessions")}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={18}
+            color={activeTab === "sessions" ? "#5B6CF6" : "#999"}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "sessions" && styles.tabTextActive,
+            ]}
           >
-            <Text style={styles.addButtonText}>+ Create</Text>
+            Today's Sessions
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "courses" && styles.tabActive]}
+          onPress={() => setActiveTab("courses")}
+        >
+          <Ionicons
+            name="book-outline"
+            size={18}
+            color={activeTab === "courses" ? "#5B6CF6" : "#999"}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "courses" && styles.tabTextActive,
+            ]}
+          >
+            All Courses
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === "sessions" && (
+        <View style={styles.dateSelector}>
+          <TouchableOpacity
+            onPress={() => handleDateNavigation(-1)}
+            style={styles.navArrow}
+          >
+            <Ionicons name="chevron-back" size={24} color="#333" />
           </TouchableOpacity>
-        )}
-      </View>
 
-      <Calendar
-        current={selectedDate}
-        onDayPress={handleDayPress}
-        markedDates={markedDates}
-        theme={{
-          todayTextColor: '#007AFF',
-          selectedDayBackgroundColor: '#007AFF',
-          dotColor: '#007AFF',
-          arrowColor: '#007AFF',
-        }}
-      />
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#5B6CF6" />
+            <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
+            {isToday(selectedDate) && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayBadgeText}>Today</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-      <View style={styles.listHeader}>
-        <Text style={styles.listHeaderText}>
-          {filteredActivities.length} activities on {selectedDate}
-        </Text>
-      </View>
+          <TouchableOpacity
+            onPress={() => handleDateNavigation(1)}
+            style={styles.navArrow}
+          >
+            <Ionicons name="chevron-forward" size={24} color="#333" />
+          </TouchableOpacity>
+        </View>
+      )}
 
-      <FlatList
-        data={filteredActivities}
-        renderItem={renderActivity}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.listContent}
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+        />
+      )}
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#5B6CF6"]}
+          />
         }
-        ListEmptyComponent={
+      >
+        {activeTab === "sessions" ? (
+          sessions.length > 0 ? (
+            sessions.map(renderSessionCard)
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="calendar-outline" size={48} color="#ccc" />
+              <Text style={styles.emptyText}>
+                No sessions scheduled for today
+              </Text>
+            </View>
+          )
+        ) : courses.length > 0 ? (
+          courses.map(renderCourseCard)
+        ) : (
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No activities on this date</Text>
+            <Ionicons name="book-outline" size={48} color="#ccc" />
+            <Text style={styles.emptyText}>No courses available</Text>
           </View>
-        }
-      />
+        )}
+      </ScrollView>
     </View>
   );
 };
@@ -133,55 +375,191 @@ const CalendarScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: "#F8F9FA",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8F9FA",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: "#666",
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    backgroundColor: "#fff",
+    paddingVertical: 16,
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderBottomColor: "#E0E0E0",
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "700",
+    color: "#1A1A1A",
   },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  tabActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: "#5B6CF6",
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#999",
+  },
+  tabTextActive: {
+    color: "#5B6CF6",
+    fontWeight: "600",
+  },
+  dateSelector: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  navArrow: {
+    padding: 8,
+  },
+  dateButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8F9FA",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginHorizontal: 8,
+    gap: 8,
+  },
+  dateText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+  },
+  todayBadge: {
+    backgroundColor: "#5B6CF6",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+  },
+  todayBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  content: {
+    flex: 1,
+    padding: 12,
+  },
+  sessionCard: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    overflow: "hidden",
+  },
+  courseCard: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+    overflow: "hidden",
+  },
+  cardContent: {
+    padding: 14,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  courseTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1A1A1A",
+  },
+  courseCode: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#5B6CF6",
+    marginBottom: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
+  statusText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#fff",
   },
-  listHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    gap: 8,
   },
-  listHeaderText: {
-    fontSize: 14,
-    color: '#666',
+  infoText: {
+    fontSize: 13,
+    color: "#666",
   },
-  listContent: {
-    padding: 15,
+  descriptionText: {
+    fontSize: 12,
+    color: "#999",
+    marginVertical: 8,
+    fontStyle: "italic",
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    marginTop: 10,
+    gap: 6,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#fff",
   },
   emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
   },
   emptyText: {
     fontSize: 16,
-    color: '#999',
+    color: "#999",
+    marginTop: 12,
   },
 });
 

@@ -1,285 +1,226 @@
-const db = require('../config/db');
-const { isOTPValid } = require('../utils/otpGenerator');
+const db = require("../config/db");
+const { verifyOTP } = require("../config/redis");
 
-const { verifyOTP } = require('../config/redis');
-
-// Mark START attendance (Student enters OTP)
+// Student marks START attendance
 exports.markStart = async (req, res) => {
   try {
-    const { activityId, otp } = req.body;
+    const { sessionId, otp } = req.body;
     const studentId = req.user.id;
 
-    // Verify OTP
-    const verification = await verifyOTP(activityId, otp);
+    if (!sessionId || !otp) {
+      return res.status(400).json({ error: "sessionId and otp are required" });
+    }
+
+    // Verify OTP from Redis with correct key format
+    const verification = await verifyOTP(`start:session:${sessionId}`, otp);
     if (!verification.valid) {
       return res.status(400).json({ error: verification.reason });
     }
 
     // Check enrollment
-    const [enrollment] = await db.query(
-      'SELECT id FROM activity_enrollments WHERE activity_id = ? AND student_id = ?',
-      [activityId, studentId]
+    const [sessions] = await db.query(
+      `SELECT cs.course_id FROM course_sessions cs WHERE cs.id = ?`,
+      [sessionId],
     );
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
 
-    if (enrollment.length === 0) {
-      return res.status(403).json({ error: 'Not enrolled in this activity' });
+    const [enrolled] = await db.query(
+      `SELECT id FROM course_enrollments WHERE course_id = ? AND student_id = ?`,
+      [sessions[0].course_id, studentId],
+    );
+    if (enrolled.length === 0) {
+      return res
+        .status(403)
+        .json({ error: "You are not enrolled in this course" });
     }
 
     // Check if already marked
     const [existing] = await db.query(
-      'SELECT id FROM attendance_records WHERE activity_id = ? AND student_id = ?',
-      [activityId, studentId]
+      `SELECT id, start_marked_at FROM session_attendance WHERE session_id = ? AND student_id = ?`,
+      [sessionId, studentId],
     );
 
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Start attendance already marked' });
+    if (existing.length > 0 && existing[0].start_marked_at) {
+      return res.status(400).json({ error: "Start attendance already marked" });
     }
 
-    // Mark attendance
+    // Insert or update
     await db.query(
-      `INSERT INTO attendance_records (activity_id, student_id, start_marked_at, status, created_at) 
-       VALUES (?, ?, NOW(), 'present', NOW())`,
-      [activityId, studentId]
+      `INSERT INTO session_attendance (session_id, student_id, start_marked_at, status, created_at)
+       VALUES (?, ?, NOW(), 'present', NOW())
+       ON DUPLICATE KEY UPDATE start_marked_at = NOW(), status = 'present'`,
+      [sessionId, studentId],
     );
 
-    res.json({ message: 'Start attendance marked successfully' });
+    res.json({ message: "Start attendance marked successfully" });
   } catch (error) {
-    console.error('Mark start error:', error);
-    res.status(500).json({ error: 'Failed to mark attendance' });
+    console.error("Mark start error:", error);
+    res.status(500).json({ error: "Failed to mark start attendance" });
   }
 };
 
-// Mark END attendance (Student enters end OTP)
+// Student marks END attendance
 exports.markEnd = async (req, res) => {
   try {
-    const { activityId, otp } = req.body;
+    const { sessionId, otp } = req.body;
     const studentId = req.user.id;
 
-    // Verify END OTP (different key)
-    const verification = await verifyOTP(`${activityId}-end`, otp);
+    if (!sessionId || !otp) {
+      return res.status(400).json({ error: "sessionId and otp are required" });
+    }
+
+    const verification = await verifyOTP(`end:session:${sessionId}`, otp);
     if (!verification.valid) {
       return res.status(400).json({ error: verification.reason });
     }
 
-    // Get attendance record
     const [records] = await db.query(
-      'SELECT id, start_marked_at FROM attendance_records WHERE activity_id = ? AND student_id = ?',
-      [activityId, studentId]
+      `SELECT id, start_marked_at FROM session_attendance WHERE session_id = ? AND student_id = ?`,
+      [sessionId, studentId],
     );
 
-    if (records.length === 0) {
-      return res.status(400).json({ error: 'Start attendance not marked' });
+    if (records.length === 0 || !records[0].start_marked_at) {
+      return res.status(400).json({ error: "Start attendance not marked yet" });
     }
 
-    // Calculate duration
-    const startTime = new Date(records[0].start_marked_at);
-    const endTime = new Date();
-    const durationMinutes = Math.floor((endTime - startTime) / 1000 / 60);
-
-    // Update record
-    await db.query(
-      `UPDATE attendance_records 
-       SET end_marked_at = NOW(), duration_minutes = ? 
-       WHERE id = ?`,
-      [durationMinutes, records[0].id]
+    const durationMinutes = Math.floor(
+      (new Date() - new Date(records[0].start_marked_at)) / 60000,
     );
 
-    res.json({ 
-      message: 'End attendance marked successfully',
-      duration: `${durationMinutes} minutes`
+    await db.query(
+      `UPDATE session_attendance SET end_marked_at = NOW(), duration_minutes = ? WHERE id = ?`,
+      [durationMinutes, records[0].id],
+    );
+
+    res.json({
+      message: "End attendance marked successfully",
+      duration: `${durationMinutes} minutes`,
     });
   } catch (error) {
-    console.error('Mark end error:', error);
-    res.status(500).json({ error: 'Failed to mark end attendance' });
+    console.error("Mark end error:", error);
+    res.status(500).json({ error: "Failed to mark end attendance" });
   }
 };
 
-
-exports.markStart = async (req, res) => {
-  try {
-    const { activityId, otp } = req.body;
-    const studentId = req.user.id;
-
-    if (!activityId || !otp) {
-      return res.status(400).json({ error: 'Activity ID and OTP required' });
-    }
-
-    const [activities] = await db.query(
-      'SELECT start_otp, otp_generated_at FROM activities WHERE id = ?',
-      [activityId]
-    );
-
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
-    }
-
-    const activity = activities[0];
-
-    if (activity.start_otp !== otp) {
-      return res.status(400).json({ error: 'Invalid OTP' });
-    }
-
-    if (!isOTPValid(activity.otp_generated_at)) {
-      return res.status(400).json({ error: 'OTP expired' });
-    }
-
-    // Check if student is enrolled
-    const [enrollment] = await db.query(
-      `SELECT id FROM master_relationship_mapping 
-       WHERE user = ? AND relation_user = ? AND relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')`,
-      [activityId, studentId]
-    );
-
-    if (enrollment.length === 0) {
-      return res.status(403).json({ error: 'Not enrolled in this activity' });
-    }
-
-    const [existing] = await db.query(
-      'SELECT id FROM attendance_records WHERE activity_id = ? AND student_id = ?',
-      [activityId, studentId]
-    );
-
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'Attendance already marked' });
-    }
-
-    await db.query(
-      `INSERT INTO attendance_records (activity_id, student_id, start_marked_at, status, created_at) 
-       VALUES (?, ?, NOW(), 'present', NOW())`,
-      [activityId, studentId]
-    );
-
-    res.json({ message: 'Start attendance marked successfully' });
-  } catch (error) {
-    console.error('Mark start error:', error);
-    res.status(500).json({ error: 'Failed to mark attendance' });
-  }
-};
-
-exports.markEnd = async (req, res) => {
-  try {
-    const { activityId, otp } = req.body;
-    const studentId = req.user.id;
-
-    if (!activityId || !otp) {
-      return res.status(400).json({ error: 'Activity ID and OTP required' });
-    }
-
-    const [activities] = await db.query(
-      'SELECT end_otp FROM activities WHERE id = ?',
-      [activityId]
-    );
-
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
-    }
-
-    if (activities[0].end_otp !== otp) {
-      return res.status(400).json({ error: 'Invalid end OTP' });
-    }
-
-    const [records] = await db.query(
-      'SELECT id, start_marked_at FROM attendance_records WHERE activity_id = ? AND student_id = ?',
-      [activityId, studentId]
-    );
-
-    if (records.length === 0) {
-      return res.status(400).json({ error: 'Start attendance not marked' });
-    }
-
-    const record = records[0];
-    const startTime = new Date(record.start_marked_at);
-    const endTime = new Date();
-    const durationMinutes = Math.floor((endTime - startTime) / 1000 / 60);
-
-    await db.query(
-      `UPDATE attendance_records 
-       SET end_marked_at = NOW(), duration_minutes = ? 
-       WHERE id = ?`,
-      [durationMinutes, record.id]
-    );
-
-    res.json({ 
-      message: 'End attendance marked successfully',
-      duration: `${durationMinutes} minutes`
-    });
-  } catch (error) {
-    console.error('Mark end error:', error);
-    res.status(500).json({ error: 'Failed to mark end attendance' });
-  }
-};
-
+// Student: view own attendance history
 exports.getMyAttendance = async (req, res) => {
   try {
-    const studentId = req.user.id;
-    const { month, year } = req.query;
+    const userId = req.user.id;
+    const userType = req.user.user_type;
+    const { course_id } = req.query;
 
-    let query = `
-      SELECT ar.*, a.title, a.start_time, a.end_time, a.location,
-             u.name as faculty_name
-      FROM attendance_records ar
-      JOIN activities a ON ar.activity_id = a.id
-      JOIN users u ON a.faculty_id = u.id
-      WHERE ar.student_id = ?
-    `;
-    const params = [studentId];
-
-    if (month && year) {
-      query += ` AND MONTH(a.start_time) = ? AND YEAR(a.start_time) = ?`;
-      params.push(month, year);
+    // Faculty users get empty array or their taught courses attendance
+    if (userType === "faculty") {
+      return res.json([]);
     }
 
-    query += ` ORDER BY a.start_time DESC`;
+    let query = `
+      SELECT sa.*, cs.session_date, cs.start_time, cs.end_time,
+             c.title as course_title, u.name as faculty_name
+      FROM session_attendance sa
+      JOIN course_sessions cs ON sa.session_id = cs.id
+      JOIN courses c ON cs.course_id = c.id
+      JOIN users u ON c.assigned_faculty_id = u.id
+      WHERE sa.student_id = ?
+    `;
+    const params = [userId];
+
+    if (course_id) {
+      query += ` AND cs.course_id = ?`;
+      params.push(course_id);
+    }
+
+    query += ` ORDER BY cs.session_date DESC, cs.start_time DESC`;
 
     const [records] = await db.query(query, params);
     res.json(records);
   } catch (error) {
-    console.error('Get attendance error:', error);
-    res.status(500).json({ error: 'Failed to fetch attendance' });
+    console.error("Get my attendance error:", error);
+    res.status(500).json({ error: "Failed to fetch attendance" });
   }
 };
 
+// Student: attendance summary with percentage
 exports.getAttendanceSummary = async (req, res) => {
   try {
-    const studentId = req.user.id;
+    const userId = req.user.id;
+    const userType = req.user.user_type;
+
+    // Faculty users get empty summary
+    if (userType === "faculty") {
+      return res.json({
+        total_sessions: 0,
+        present_count: 0,
+        absent_count: 0,
+        on_leave_count: 0,
+        late_count: 0,
+        attendance_percentage: 0,
+        total_leave_requests: 0,
+        approved_leave_days: 0,
+      });
+    }
 
     const [summary] = await db.query(
       `SELECT 
-         COUNT(*) as total_activities,
+         COUNT(*) as total_sessions,
          SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count,
          SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count,
-         SUM(CASE WHEN status = 'on_leave' THEN 1 ELSE 0 END) as leave_count,
-         ROUND((SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
-       FROM attendance_records
+         SUM(CASE WHEN status = 'on_leave' THEN 1 ELSE 0 END) as on_leave_count,
+         SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_count,
+         ROUND(
+           (SUM(CASE WHEN status IN ('present','on_leave') THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0)) * 100, 
+           2
+         ) as attendance_percentage
+       FROM session_attendance
        WHERE student_id = ?`,
-      [studentId]
+      [userId],
     );
 
-    res.json(summary[0]);
+    // Leave summary
+    const [leaveSummary] = await db.query(
+      `SELECT 
+         COUNT(*) as total_leave_requests,
+         SUM(CASE WHEN status = 'APPROVED' THEN DATEDIFF(end_date, start_date) + 1 ELSE 0 END) as approved_leave_days
+       FROM leave_requests
+       WHERE student_id = ?`,
+      [userId],
+    );
+
+    res.json({
+      ...summary[0],
+      ...leaveSummary[0],
+    });
   } catch (error) {
-    console.error('Get summary error:', error);
-    res.status(500).json({ error: 'Failed to fetch summary' });
+    console.error("Get summary error:", error);
+    res.status(500).json({ error: "Failed to fetch summary" });
   }
 };
 
-exports.getActivityReport = async (req, res) => {
+// Faculty: report for a session
+exports.getSessionReport = async (req, res) => {
   try {
     const { id } = req.params;
+    const [sessions] = await db.query(
+      `SELECT cs.course_id FROM course_sessions cs WHERE cs.id = ?`,
+      [id],
+    );
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
 
     const [report] = await db.query(
       `SELECT u.id, u.name, u.email,
-              ar.status, ar.start_marked_at, ar.end_marked_at, ar.duration_minutes
-       FROM master_relationship_mapping mrm
-       JOIN users u ON mrm.relation_user = u.id
-       LEFT JOIN attendance_records ar ON ar.activity_id = mrm.user AND ar.student_id = u.id
-       WHERE mrm.user = ? AND mrm.relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')
+              COALESCE(sa.status, 'absent') as status,
+              sa.start_marked_at, sa.end_marked_at, sa.duration_minutes
+       FROM course_enrollments ce
+       JOIN users u ON ce.student_id = u.id
+       LEFT JOIN session_attendance sa ON sa.session_id = ? AND sa.student_id = u.id
+       WHERE ce.course_id = ?
        ORDER BY u.name`,
-      [id]
+      [id, sessions[0].course_id],
     );
-
     res.json(report);
   } catch (error) {
-    console.error('Get report error:', error);
-    res.status(500).json({ error: 'Failed to fetch report' });
+    res.status(500).json({ error: "Failed to fetch session report" });
   }
 };

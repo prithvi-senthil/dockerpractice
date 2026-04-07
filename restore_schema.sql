@@ -1,15 +1,16 @@
--- Attendance Tracking System Database Schema
+SET FOREIGN_KEY_CHECKS = 0;
 
--- Drop existing tables if they exist
-DROP TABLE IF EXISTS session_attendance;
 DROP TABLE IF EXISTS attendance_records;
 DROP TABLE IF EXISTS leave_requests;
+DROP TABLE IF EXISTS activity_enrollments;
+DROP TABLE IF EXISTS activities;
+DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS course_enrollments;
 DROP TABLE IF EXISTS course_sessions;
-DROP TABLE IF EXISTS activity_enrollments;
-DROP TABLE IF EXISTS courses;
-DROP TABLE IF EXISTS activities;
+DROP TABLE IF EXISTS session_attendance;
 DROP TABLE IF EXISTS users;
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- Users table
 CREATE TABLE users (
@@ -22,53 +23,6 @@ CREATE TABLE users (
   push_token VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Courses table (courses created by admin and assigned to faculty)
-CREATE TABLE courses (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  title VARCHAR(255) NOT NULL,
-  description TEXT,
-  course_code VARCHAR(50) NOT NULL UNIQUE,
-  max_students INT DEFAULT 50,
-  assigned_faculty_id BIGINT NOT NULL,
-  created_by BIGINT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (assigned_faculty_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_faculty (assigned_faculty_id),
-  INDEX idx_code (course_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Course sessions table (individual sessions for a course)
-CREATE TABLE course_sessions (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  course_id BIGINT NOT NULL,
-  session_date DATE NOT NULL,
-  start_time VARCHAR(5) NOT NULL,
-  end_time VARCHAR(5) NOT NULL,
-  status ENUM('scheduled', 'ongoing', 'completed', 'cancelled') DEFAULT 'scheduled',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-  INDEX idx_course (course_id),
-  INDEX idx_date (session_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Course enrollments (students enrolled in courses)
-CREATE TABLE course_enrollments (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  course_id BIGINT NOT NULL,
-  student_id BIGINT NOT NULL,
-  enrolled_by BIGINT NOT NULL,
-  enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-  FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (enrolled_by) REFERENCES users(id) ON DELETE CASCADE,
-  UNIQUE KEY unique_enrollment (course_id, student_id),
-  INDEX idx_course (course_id),
-  INDEX idx_student (student_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Activities table (like classes/labs)
@@ -143,9 +97,8 @@ CREATE TABLE leave_requests (
   INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Insert sample users (password: 'admin123' or 'password123' hashed with bcrypt)
+-- Insert sample users (password: 'password123' hashed with bcrypt)
 INSERT INTO users (name, email, password, user_type) VALUES
-('Admin User', 'admin@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'admin'),
 ('Dr. Rajesh Kumar', 'rajesh@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'faculty'),
 ('Prof. Priya Sharma', 'priya@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'faculty'),
 ('Rahul Verma', 'rahul@student.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'student'),

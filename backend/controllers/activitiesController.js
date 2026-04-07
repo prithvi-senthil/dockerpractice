@@ -1,266 +1,507 @@
-const db = require('../config/db');
-const { generateOTP, isOTPValid } = require('../utils/otpGenerator');
-const { storeOTP, verifyOTP, getActiveOTP } = require('../config/redis');
+const db = require("../config/db");
+const { generateOTP, storeOTP, verifyOTP } = require("../config/redis");
 
-// Generate START OTP (Faculty only)
-exports.generateStartOTP = async (req, res) => {
+// ── COURSES ──────────────────────────────────────────────
+
+// ADMIN: Create a new course
+exports.createCourse = async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.user.id;
+    const {
+      title,
+      description,
+      course_code,
+      max_students,
+      assigned_faculty_id,
+      schedule_days,
+      start_time,
+      end_time,
+    } = req.body;
+    const adminId = req.user.id;
 
-    // Check ownership
-    const [activities] = await db.query('SELECT owner_id FROM activities WHERE id = ?', [id]);
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
-    }
-    if (activities[0].owner_id !== userId) {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
-
-    const otp = generateOTP();
-    await storeOTP(id, otp, userId);
-
-    await db.query(
-      `UPDATE activities SET start_otp = ?, otp_generated_at = NOW(), status = 'ongoing' WHERE id = ?`,
-      [otp, id]
-    );
-
-    res.json({ 
-      otp, 
-      message: 'Start OTP generated successfully',
-      expires_in_seconds: 300
-    });
-  } catch (error) {
-    console.error('Generate OTP error:', error);
-    res.status(500).json({ error: 'Failed to generate OTP' });
-  }
-};
-
-// Generate END OTP (Faculty only)
-exports.generateEndOTP = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user.id;
-
-    const [activities] = await db.query('SELECT owner_id FROM activities WHERE id = ?', [id]);
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
-    }
-    if (activities[0].owner_id !== userId) {
-      return res.status(403).json({ error: 'Not authorized' });
+    if (!title || !course_code || !assigned_faculty_id) {
+      return res.status(400).json({
+        error: "title, course_code, and assigned_faculty_id are required",
+      });
     }
 
-    const otp = generateOTP();
-    await storeOTP(`${id}-end`, otp, userId); // Different key for end OTP
-
-    await db.query(
-      `UPDATE activities SET end_otp = ?, status = 'completed' WHERE id = ?`,
-      [otp, id]
-    );
-
-    res.json({ 
-      otp, 
-      message: 'End OTP generated successfully',
-      expires_in_seconds: 300
-    });
-  } catch (error) {
-    console.error('Generate end OTP error:', error);
-    res.status(500).json({ error: 'Failed to generate end OTP' });
-  }
-};
-
-
-
-exports.create = async (req, res) => {
-  try {
-    const { title, description, start_time, end_time, location, student_ids } = req.body;
-    const faculty_id = req.user.id;
-
-    if (!title || !start_time || !end_time) {
-      return res.status(400).json({ error: 'Title, start_time, and end_time are required' });
-    }
-
+    // Insert course
     const [result] = await db.query(
-      `INSERT INTO activities (title, description, faculty_id, start_time, end_time, location, status, created_at) 
-       VALUES (?, ?, ?, ?, ?, ?, 'scheduled', NOW())`,
-      [title, description, faculty_id, start_time, end_time, location]
+      `INSERT INTO courses (title, description, course_code, max_students, assigned_faculty_id, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        title,
+        description || null,
+        course_code,
+        max_students || 50,
+        assigned_faculty_id,
+        adminId,
+      ],
     );
 
-    const activityId = result.insertId;
+    const courseId = result.insertId;
 
-    // Get relationship ID for 'activity-student'
-    const [relType] = await db.query("SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1'");
-    const relationshipId = relType[0]?.id || 3;
-
-    // Map students to activity
-    if (student_ids && student_ids.length > 0) {
-      for (const studentId of student_ids) {
-        await db.query(
-          `INSERT INTO master_relationship_mapping (relationship, user, relation_user, status) VALUES (?, ?, ?, '1')`,
-          [relationshipId, activityId.toString(), studentId]
-        );
-      }
+    // Generate course sessions if schedule provided
+    if (schedule_days && start_time && end_time) {
+      const startDate =
+        req.body.start_date || new Date().toISOString().split("T")[0];
+      const endDate =
+        req.body.end_date ||
+        new Date(new Date().getTime() + 90 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0];
+      await generateCourseSessions(
+        courseId,
+        startDate,
+        endDate,
+        schedule_days,
+        start_time,
+        end_time,
+      );
     }
 
     res.status(201).json({
-      message: 'Activity created successfully',
-      activityId: activityId
+      message: "Course created successfully",
+      course_id: courseId,
+      title,
+      course_code,
     });
   } catch (error) {
-    console.error('Create activity error:', error);
-    res.status(500).json({ error: 'Failed to create activity' });
+    console.error("Create course error:", error);
+    res.status(500).json({ error: "Failed to create course" });
   }
 };
 
-exports.getAll = async (req, res) => {
+// Helper: Generate recurring course sessions
+async function generateCourseSessions(
+  courseId,
+  startDate,
+  endDate,
+  scheduleDays,
+  startTime,
+  endTime,
+) {
+  const days = scheduleDays.split(",").map((d) => d.trim());
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
+    if (days.includes(dayName)) {
+      const sessionDate = d.toISOString().split("T")[0];
+      await db.query(
+        `INSERT INTO course_sessions (course_id, session_date, start_time, end_time, status)
+         VALUES (?, ?, ?, ?, 'scheduled')`,
+        [courseId, sessionDate, startTime, endTime],
+      );
+    }
+  }
+}
+
+// GET ALL COURSES (role-based)
+exports.getCourses = async (req, res) => {
   try {
-    const { date, status } = req.query;
     const userId = req.user.id;
     const userType = req.user.user_type;
 
     let query = `
-      SELECT a.*, u.name as faculty_name
-      FROM activities a
-      JOIN users u ON a.faculty_id = u.id
+      SELECT c.*, 
+             u.name as faculty_name,
+             u.email as faculty_email,
+             (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id) as enrolled_count
+      FROM courses c
+      LEFT JOIN users u ON c.assigned_faculty_id = u.id
       WHERE 1=1
     `;
     const params = [];
 
-    if (userType === 'student') {
-      // Students see only activities they are mapped to
-      query += ` AND a.id IN (
-        SELECT CAST(user AS UNSIGNED) FROM master_relationship_mapping 
-        WHERE relation_user = ? AND relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')
-      )`;
+    if (userType === "faculty") {
+      query += ` AND c.assigned_faculty_id = ?`;
       params.push(userId);
-    } else if (userType === 'faculty') {
-      query += ` AND a.faculty_id = ?`;
+    } else if (userType === "student") {
+      query += ` AND c.id IN (SELECT course_id FROM course_enrollments WHERE student_id = ?)`;
+      params.push(userId);
+    }
+
+    query += ` ORDER BY c.created_at DESC`;
+
+    const [courses] = await db.query(query, params);
+    res.json(courses);
+  } catch (error) {
+    console.error("Get courses error:", error);
+    res.status(500).json({ error: "Failed to fetch courses" });
+  }
+};
+
+// GET COURSE BY ID
+exports.getCourseById = async (req, res) => {
+  try {
+    console.log("🔍 getCourseById called with id:", req.params.id);
+    const { id } = req.params;
+    const [courses] = await db.query(
+      `SELECT c.*, u.name as faculty_name, u.email as faculty_email,
+              (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id) as enrolled_count
+       FROM courses c
+       LEFT JOIN users u ON c.assigned_faculty_id = u.id
+       WHERE c.id = ?`,
+      [id],
+    );
+    if (courses.length === 0)
+      return res.status(404).json({ error: "Course not found" });
+    res.json(courses[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch course" });
+  }
+};
+
+// GET ALL FACULTY (for course assignment)
+exports.getFaculty = async (req, res) => {
+  try {
+    console.log("👥 getFaculty called");
+    const [faculty] = await db.query(
+      `SELECT id, name, email FROM users WHERE user_type = 'faculty' ORDER BY name ASC`,
+    );
+    res.json({ faculty });
+  } catch (error) {
+    console.error("Get faculty error:", error);
+    res.status(500).json({ error: "Failed to fetch faculty" });
+  }
+};
+// GET ALL STUDENTS
+exports.getStudents = async (req, res) => {
+  try {
+    console.log("👨‍🎓 getStudents called");
+    const [students] = await db.query(
+      `SELECT id, name, email FROM users WHERE user_type = 'student' ORDER BY name ASC`,
+    );
+    res.json({ students });
+  } catch (error) {
+    console.error("Get students error:", error);
+    res.status(500).json({ error: "Failed to fetch students" });
+  }
+};
+// CHECK FOR SCHEDULE CONFLICTS
+exports.checkScheduleConflict = async (req, res) => {
+  try {
+    const { courseId, dayOfWeek, startTime, endTime } = req.body;
+
+    if (!dayOfWeek || !startTime || !endTime) {
+      return res
+        .status(400)
+        .json({ error: "Day, start time, and end time are required" });
+    }
+
+    // Get all existing activities for this course
+    const [activities] = await db.query(
+      `SELECT id, day_of_week, start_time, end_time FROM activities WHERE course_id = ?`,
+      [courseId],
+    );
+
+    // Check for conflicts with all activities in the course
+    const conflicts = activities.filter((activity) => {
+      // Only check if it's the same day
+      if (activity.day_of_week !== dayOfWeek) return false;
+
+      // Parse times
+      const existingStart = parseInt(activity.start_time, 10);
+      const existingEnd = parseInt(activity.end_time, 10);
+      const newStart = parseInt(startTime, 10);
+      const newEnd = parseInt(endTime, 10);
+
+      // Check if time ranges overlap
+      return newStart < existingEnd && newEnd > existingStart;
+    });
+
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        hasConflict: true,
+        conflicts: conflicts,
+        message: `Schedule conflict found. This ${dayOfWeek} time slot overlaps with existing activities.`,
+      });
+    }
+
+    res.json({
+      hasConflict: false,
+      message: "No schedule conflicts detected.",
+    });
+  } catch (error) {
+    console.error("Check schedule conflict error:", error);
+    res.status(500).json({ error: "Failed to check schedule conflicts" });
+  }
+};
+
+// Add students to course (admin or faculty)
+exports.addStudentsToCourse = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { student_ids } = req.body;
+    const enrolledBy = req.user.id;
+
+    if (
+      !student_ids ||
+      !Array.isArray(student_ids) ||
+      student_ids.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({ error: "student_ids must be a non-empty array" });
+    }
+
+    let added = 0;
+    for (const studentId of student_ids) {
+      await db.query(
+        `INSERT IGNORE INTO course_enrollments (course_id, student_id, enrolled_by, enrolled_at)
+         VALUES (?, ?, ?, NOW())`,
+        [courseId, studentId, enrolledBy],
+      );
+      added++;
+    }
+
+    res.json({ message: `${added} students added to course` });
+  } catch (error) {
+    console.error("Add students error:", error);
+    res.status(500).json({ error: "Failed to add students" });
+  }
+};
+
+// Get enrolled students for a course
+exports.getCourseStudents = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const [students] = await db.query(
+      `SELECT u.id, u.name, u.email, ce.enrolled_at
+       FROM course_enrollments ce
+       JOIN users u ON ce.student_id = u.id
+       WHERE ce.course_id = ?
+       ORDER BY u.name`,
+      [courseId],
+    );
+    res.json(students);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch students" });
+  }
+};
+
+// ── SESSIONS ─────────────────────────────────────────────
+
+// GET SESSIONS for a course (filtered by date)
+exports.getCourseSessions = async (req, res) => {
+  try {
+    const { courseId } = req.params;
+    const { date } = req.query;
+
+    let query = `SELECT cs.* FROM course_sessions cs WHERE cs.course_id = ?`;
+    const params = [courseId];
+
+    if (date) {
+      query += ` AND cs.session_date = ?`;
+      params.push(date);
+    }
+    query += ` ORDER BY cs.session_date ASC, cs.start_time ASC`;
+
+    const [sessions] = await db.query(query, params);
+    res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch sessions" });
+  }
+};
+
+// GET ALL SESSIONS across courses (for calendar view, role-based)
+exports.getAllSessions = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userType = req.user.user_type;
+    const { date } = req.query;
+
+    let query = `
+      SELECT cs.*, c.title as course_title, c.max_students,
+             u.name as faculty_name, u.id as faculty_id,
+             (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id) as enrolled_count
+      FROM course_sessions cs
+      JOIN courses c ON cs.course_id = c.id
+      LEFT JOIN users u ON c.assigned_faculty_id = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (userType === "faculty") {
+      query += ` AND c.assigned_faculty_id = ?`;
+      params.push(userId);
+    } else if (userType === "student") {
+      query += ` AND c.id IN (SELECT course_id FROM course_enrollments WHERE student_id = ?)`;
       params.push(userId);
     }
 
     if (date) {
-      query += ` AND DATE(a.start_time) = ?`;
+      query += ` AND cs.session_date = ?`;
       params.push(date);
     }
 
-    if (status) {
-      query += ` AND a.status = ?`;
-      params.push(status);
-    }
+    query += ` ORDER BY cs.session_date ASC, cs.start_time ASC`;
 
-    query += ` ORDER BY a.start_time ASC`;
-
-    const [activities] = await db.query(query, params);
-    res.json(activities);
+    const [sessions] = await db.query(query, params);
+    res.json(sessions);
   } catch (error) {
-    console.error('Get activities error:', error);
-    res.status(500).json({ error: 'Failed to fetch activities' });
+    console.error("Get all sessions error:", error);
+    res.status(500).json({ error: "Failed to fetch sessions" });
   }
 };
 
-exports.getById = async (req, res) => {
+// GET SESSION BY ID
+exports.getSessionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [sessions] = await db.query(
+      `SELECT cs.*, c.title as course_title, c.max_students, c.assigned_faculty_id,
+              u.name as faculty_name
+       FROM course_sessions cs
+       JOIN courses c ON cs.course_id = c.id
+       LEFT JOIN users u ON c.assigned_faculty_id = u.id
+       WHERE cs.id = ?`,
+      [id],
+    );
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
+    res.json(sessions[0]);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch session" });
+  }
+};
+
+// Get students for a session with their attendance
+exports.getSessionStudents = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const [activities] = await db.query(
-      `SELECT a.*, u.name as faculty_name
-       FROM activities a
-       JOIN users u ON a.faculty_id = u.id
-       WHERE a.id = ?`,
-      [id]
+    // Get course_id from session
+    const [sessions] = await db.query(
+      `SELECT course_id FROM course_sessions WHERE id = ?`,
+      [id],
     );
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
 
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
-    }
+    const courseId = sessions[0].course_id;
 
-    res.json(activities[0]);
+    const [students] = await db.query(
+      `SELECT u.id, u.name, u.email,
+              sa.status as attendance_status,
+              sa.start_marked_at, sa.end_marked_at, sa.duration_minutes
+       FROM course_enrollments ce
+       JOIN users u ON ce.student_id = u.id
+       LEFT JOIN session_attendance sa ON sa.session_id = ? AND sa.student_id = u.id
+       WHERE ce.course_id = ?
+       ORDER BY u.name`,
+      [id, courseId],
+    );
+    res.json(students);
   } catch (error) {
-    console.error('Get activity error:', error);
-    res.status(500).json({ error: 'Failed to fetch activity' });
+    res.status(500).json({ error: "Failed to fetch session students" });
   }
 };
 
+// ── OTP GENERATION ───────────────────────────────────────────────────
+
+// Faculty: Generate START OTP for a session
 exports.generateStartOTP = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params; // session id
     const userId = req.user.id;
 
-    const [activities] = await db.query('SELECT faculty_id FROM activities WHERE id = ?', [id]);
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
+    const [sessions] = await db.query(
+      `SELECT cs.*, c.assigned_faculty_id, c.title as course_title
+       FROM course_sessions cs
+       JOIN courses c ON cs.course_id = c.id
+       WHERE cs.id = ?`,
+      [id],
+    );
+
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
+    const session = sessions[0];
+
+    if (session.assigned_faculty_id !== userId) {
+      return res.status(403).json({
+        error: "Not authorized — you are not the faculty for this session",
+      });
     }
-    if (activities[0].faculty_id !== userId) {
-      return res.status(403).json({ error: 'Not authorized' });
+
+    // Check if within session time window (allow 15 min early)
+    const now = new Date();
+    const sessionStart = new Date(
+      `${session.session_date}T${session.start_time}`,
+    );
+    const sessionEnd = new Date(`${session.session_date}T${session.end_time}`);
+    const earlyBuffer = new Date(sessionStart.getTime() - 15 * 60 * 1000);
+
+    if (now < earlyBuffer || now > sessionEnd) {
+      return res.status(400).json({
+        error: `OTP can only be generated during session time (${session.start_time} - ${session.end_time})`,
+      });
     }
 
     const otp = generateOTP();
+    await storeOTP(`start:session:${id}`, otp, userId);
 
     await db.query(
-      `UPDATE activities SET start_otp = ?, otp_generated_at = NOW(), status = 'ongoing' WHERE id = ?`,
-      [otp, id]
+      `UPDATE course_sessions SET start_otp = ?, otp_generated_at = NOW(), status = 'ongoing' WHERE id = ?`,
+      [otp, id],
     );
 
-    res.json({ 
-      otp, 
-      message: 'Start OTP generated successfully',
-      expiresIn: '10 minutes'
+    res.json({
+      otp,
+      message: "Start OTP generated successfully",
+      expires_in_seconds: 300,
+      session_title: session.course_title,
     });
   } catch (error) {
-    console.error('Generate OTP error:', error);
-    res.status(500).json({ error: 'Failed to generate OTP' });
+    console.error("Generate start OTP error:", error);
+    res.status(500).json({ error: "Failed to generate OTP" });
   }
 };
 
+// Faculty: Generate END OTP for a session
 exports.generateEndOTP = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const [activities] = await db.query('SELECT faculty_id FROM activities WHERE id = ?', [id]);
-    if (activities.length === 0) {
-      return res.status(404).json({ error: 'Activity not found' });
+    const [sessions] = await db.query(
+      `SELECT cs.*, c.assigned_faculty_id, c.title as course_title
+       FROM course_sessions cs
+       JOIN courses c ON cs.course_id = c.id
+       WHERE cs.id = ?`,
+      [id],
+    );
+
+    if (sessions.length === 0)
+      return res.status(404).json({ error: "Session not found" });
+    const session = sessions[0];
+
+    if (session.assigned_faculty_id !== userId) {
+      return res.status(403).json({ error: "Not authorized" });
     }
-    if (activities[0].faculty_id !== userId) {
-      return res.status(403).json({ error: 'Not authorized' });
+
+    if (session.status !== "ongoing") {
+      return res
+        .status(400)
+        .json({ error: "Session is not ongoing. Generate Start OTP first." });
     }
 
     const otp = generateOTP();
+    await storeOTP(`end:session:${id}`, otp, userId);
 
     await db.query(
-      `UPDATE activities SET end_otp = ?, status = 'completed' WHERE id = ?`,
-      [otp, id]
+      `UPDATE course_sessions SET end_otp = ?, status = 'completed' WHERE id = ?`,
+      [otp, id],
     );
 
-    res.json({ 
-      otp, 
-      message: 'End OTP generated successfully',
-      expiresIn: '10 minutes'
+    res.json({
+      otp,
+      message: "End OTP generated successfully",
+      expires_in_seconds: 300,
     });
   } catch (error) {
-    console.error('Generate end OTP error:', error);
-    res.status(500).json({ error: 'Failed to generate end OTP' });
-  }
-};
-
-exports.getEnrolledStudents = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [students] = await db.query(
-      `SELECT u.id, u.name, u.email,
-              ar.status as attendance_status, ar.start_marked_at, ar.end_marked_at
-       FROM master_relationship_mapping mrm
-       JOIN users u ON mrm.relation_user = u.id
-       LEFT JOIN attendance_records ar ON ar.activity_id = ? AND ar.student_id = u.id
-       WHERE mrm.user = ? AND mrm.relationship = (SELECT id FROM master_relationship WHERE relationship = 'activity-student' AND status = '1')
-       ORDER BY u.name`,
-      [id, id]
-    );
-
-    res.json(students);
-  } catch (error) {
-    console.error('Get students error:', error);
-    res.status(500).json({ error: 'Failed to fetch students' });
+    console.error("Generate end OTP error:", error);
+    res.status(500).json({ error: "Failed to generate end OTP" });
   }
 };

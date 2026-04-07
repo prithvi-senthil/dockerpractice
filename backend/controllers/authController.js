@@ -36,26 +36,40 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    console.log('🔐 Login attempt:', email); // Debug log
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const [users] = await db.query('SELECT * FROM users WHERE email = ? AND is_active = 1', [email]);
+    // Find user
+    const [users] = await db.query(
+      'SELECT * FROM users WHERE email = ? AND is_active = TRUE', 
+      [email]
+    );
     
     if (users.length === 0) {
+      console.log('❌ User not found:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = users[0];
+    console.log('✅ User found:', user.email, 'Type:', user.user_type);
 
+    // Check password
     const isMatch = await bcrypt.compare(password, user.password);
+    
+    console.log('🔑 Password match:', isMatch); // Debug log
+    
     if (!isMatch) {
+      console.log('❌ Password mismatch for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    // Generate token
     const token = jwt.sign(
       {
-        id: user.id.toString(),
+        id: user.id,
         email: user.email,
         user_type: user.user_type,
         name: user.name
@@ -64,17 +78,19 @@ exports.login = async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log('✅ Login successful:', user.name, user.user_type);
+
     res.json({
       token,
       user: {
-        id: user.id.toString(),
+        id: user.id,
         name: user.name,
         email: user.email,
         user_type: user.user_type
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Login failed' });
   }
 };

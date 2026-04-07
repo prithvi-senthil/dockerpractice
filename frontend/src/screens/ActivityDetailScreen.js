@@ -7,236 +7,224 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import OTPInput from '../components/OTPInput';
 
 const ActivityDetailScreen = ({ route, navigation }) => {
-  const { activityId } = route.params;
+  const { sessionId, courseTitle, facultyName } = route.params;
   const { user } = useAuth();
-  const [activity, setActivity] = useState(null);
+  
+  const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [startOTP, setStartOTP] = useState('');
-  const [endOTP, setEndOTP] = useState('');
-  const [generatedStartOTP, setGeneratedStartOTP] = useState('');
-  const [generatedEndOTP, setGeneratedEndOTP] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [activeOTP, setActiveOTP] = useState(null);
+  const [showOTPGeneration, setShowOTPGeneration] = useState(false);
+  const [otpType, setOtpType] = useState(null); // 'start' or 'end'
 
   const isFaculty = user?.user_type === 'faculty';
+  const isStudent = user?.user_type === 'student';
 
   useEffect(() => {
-    fetchActivity();
+    fetchSessionDetails();
   }, []);
 
-  const fetchActivity = async () => {
+  const fetchSessionDetails = async () => {
     try {
-      const response = await api.get(`/activities/${activityId}`);
-      setActivity(response.data);
+      const response = await api.get(`/activities/sessions/${sessionId}`);
+      setSession(response.data);
     } catch (error) {
-      console.error('Fetch activity error:', error);
-      Alert.alert('Error', 'Failed to fetch activity details');
+      console.error('Fetch session error:', error);
+      Alert.alert('Error', 'Failed to load session details');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGenerateStartOTP = async () => {
+  const handleGenerateOTP = async (type) => {
     try {
-      const response = await api.post(`/activities/${activityId}/generate-start-otp`);
-      setGeneratedStartOTP(response.data.otp);
-      Alert.alert('Start OTP Generated', `OTP: ${response.data.otp}\nValid for 10 minutes`);
-      fetchActivity(); // Refresh activity status
+      setOtpType(type);
+      const endpoint = type === 'start' 
+        ? `/activities/sessions/${sessionId}/generate-start-otp`
+        : `/activities/sessions/${sessionId}/generate-end-otp`;
+      
+      const response = await api.post(endpoint);
+      setActiveOTP(response.data.otp);
+      setShowOTPGeneration(true);
+      
+      Alert.alert(
+        `${type.toUpperCase()} OTP Generated`,
+        `OTP: ${response.data.otp}\nValid for 5 minutes`,
+        [{ text: 'OK', onPress: () => fetchSessionDetails() }]
+      );
     } catch (error) {
-      console.error('Generate start OTP error:', error);
-      Alert.alert('Error', 'Failed to generate start OTP');
+      console.error('Generate OTP error:', error);
+      Alert.alert('Error', error.response?.data?.error || 'Failed to generate OTP');
     }
   };
 
-  const handleGenerateEndOTP = async () => {
-    try {
-      const response = await api.post(`/activities/${activityId}/generate-end-otp`);
-      setGeneratedEndOTP(response.data.otp);
-      Alert.alert('End OTP Generated', `OTP: ${response.data.otp}\nValid for 10 minutes`);
-      fetchActivity(); // Refresh activity status
-    } catch (error) {
-      console.error('Generate end OTP error:', error);
-      Alert.alert('Error', 'Failed to generate end OTP');
-    }
-  };
-
-  const handleMarkStartAttendance = async () => {
-    if (startOTP.length !== 6) {
+  const handleMarkAttendance = async (type) => {
+    if (otpInput.length !== 6) {
       Alert.alert('Error', 'Please enter 6-digit OTP');
       return;
     }
 
     try {
-      await api.post('/attendance/mark-start', {
-        activityId,
-        otp: startOTP,
+      const endpoint = type === 'start' ? '/attendance/mark-start' : '/attendance/mark-end';
+      const response = await api.post(endpoint, {
+        sessionId,
+        otp: otpInput,
       });
-      Alert.alert('Success', 'Start attendance marked!');
-      setStartOTP('');
+
+      Alert.alert(
+        'Success',
+        type === 'start' 
+          ? 'Start attendance marked!' 
+          : `End attendance marked!\nDuration: ${response.data.duration}`
+      );
+      
+      setOtpInput('');
+      fetchSessionDetails();
     } catch (error) {
-      console.error('Mark start error:', error);
+      console.error('Mark attendance error:', error);
       Alert.alert('Error', error.response?.data?.error || 'Failed to mark attendance');
     }
-  };
-
-  const handleMarkEndAttendance = async () => {
-    if (endOTP.length !== 6) {
-      Alert.alert('Error', 'Please enter 6-digit OTP');
-      return;
-    }
-
-    try {
-      const response = await api.post('/attendance/mark-end', {
-        activityId,
-        otp: endOTP,
-      });
-      Alert.alert('Success', `End attendance marked! Duration: ${response.data.duration}`);
-      setEndOTP('');
-    } catch (error) {
-      console.error('Mark end error:', error);
-      Alert.alert('Error', error.response?.data?.error || 'Failed to mark end attendance');
-    }
-  };
-
-  const handleViewStudents = () => {
-    navigation.navigate('StudentList', { activityId });
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#1976D2" />
       </View>
     );
   }
 
-  if (!activity) {
+  if (!session) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Activity not found</Text>
+        <Text style={styles.errorText}>Session not found</Text>
       </View>
     );
   }
-
-  const formatDateTime = (dateTime) => {
-    const date = new Date(dateTime);
-    return date.toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  };
 
   return (
     <ScrollView style={styles.container}>
+      {/* Session Header */}
       <View style={styles.card}>
-        <Text style={styles.title}>{activity.title}</Text>
-        {activity.description && (
-          <Text style={styles.description}>{activity.description}</Text>
-        )}
-
+        <Text style={styles.title}>{courseTitle}</Text>
+        <Text style={styles.faculty}>👨‍🏫 {facultyName}</Text>
+        
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Owner:</Text>
-          <Text style={styles.value}>{activity.owner_name}</Text>
+          <Text style={styles.label}>Date:</Text>
+          <Text style={styles.value}>{session.session_date}</Text>
         </View>
 
         <View style={styles.infoRow}>
-          <Text style={styles.label}>Start Time:</Text>
-          <Text style={styles.value}>{formatDateTime(activity.start_time)}</Text>
+          <Text style={styles.label}>Time:</Text>
+          <Text style={styles.value}>{session.start_time} - {session.end_time}</Text>
         </View>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>End Time:</Text>
-          <Text style={styles.value}>{formatDateTime(activity.end_time)}</Text>
-        </View>
-
-        {activity.location && (
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Location:</Text>
-            <Text style={styles.value}>{activity.location}</Text>
-          </View>
-        )}
 
         <View style={styles.infoRow}>
           <Text style={styles.label}>Status:</Text>
-          <Text style={[styles.value, styles.statusText, styles[`status${activity.status}`]]}>
-            {activity.status.toUpperCase()}
+          <Text style={[styles.value, { color: getStatusColor(session.status) }]}>
+            {session.status?.toUpperCase()}
           </Text>
         </View>
 
         <View style={styles.infoRow}>
           <Text style={styles.label}>Enrolled:</Text>
-          <Text style={styles.value}>
-            {activity.enrolled_count} / {activity.max_students}
-          </Text>
+          <Text style={styles.value}>{session.enrolled_count}/{session.max_students} students</Text>
         </View>
       </View>
 
-      {/* Faculty Controls */}
+      {/* Faculty: OTP Generation */}
       {isFaculty && (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Faculty Controls</Text>
+          <Text style={styles.sectionTitle}>🔐 OTP Management</Text>
 
-          <TouchableOpacity style={styles.button} onPress={handleGenerateStartOTP}>
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: '#4CAF50' }]}
+            onPress={() => handleGenerateOTP('start')}
+          >
             <Text style={styles.buttonText}>Generate Start OTP</Text>
           </TouchableOpacity>
 
-          {generatedStartOTP && (
-            <View style={styles.otpDisplay}>
-              <Text style={styles.otpLabel}>Start OTP:</Text>
-              <Text style={styles.otpValue}>{generatedStartOTP}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.button} onPress={handleGenerateEndOTP}>
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: '#FF5722', marginTop: 12 }]}
+            onPress={() => handleGenerateOTP('end')}
+          >
             <Text style={styles.buttonText}>Generate End OTP</Text>
           </TouchableOpacity>
 
-          {generatedEndOTP && (
-            <View style={styles.otpDisplay}>
-              <Text style={styles.otpLabel}>End OTP:</Text>
-              <Text style={styles.otpValue}>{generatedEndOTP}</Text>
+          {activeOTP && (
+            <View style={styles.activeOTPBox}>
+              <Text style={styles.otpLabel}>Active OTP:</Text>
+              <Text style={styles.otpDisplay}>{activeOTP}</Text>
+              <Text style={styles.otpExpiry}>Valid for 5 minutes</Text>
             </View>
           )}
-
-          <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleViewStudents}>
-            <Text style={styles.secondaryButtonText}>View Enrolled Students</Text>
-          </TouchableOpacity>
         </View>
       )}
 
-      {/* Student Controls */}
-      {!isFaculty && (
+      {/* Student: OTP Entry */}
+      {isStudent && (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Mark Attendance</Text>
+          <Text style={styles.sectionTitle}>✍️ Mark Attendance</Text>
 
-          <Text style={styles.otpLabel}>Enter Start OTP:</Text>
-          <OTPInput value={startOTP} onChange={setStartOTP} />
-          <TouchableOpacity style={styles.button} onPress={handleMarkStartAttendance}>
-            <Text style={styles.buttonText}>Mark Start Attendance</Text>
-          </TouchableOpacity>
+          {session.status === 'ongoing' ? (
+            <>
+              <Text style={styles.instructionText}>
+                Enter the OTP provided by your instructor
+              </Text>
 
-          <View style={styles.divider} />
+              <TextInput
+                style={styles.otpInput}
+                placeholder="Enter 6-digit OTP"
+                keyboardType="number-pad"
+                maxLength={6}
+                value={otpInput}
+                onChangeText={setOtpInput}
+              />
 
-          <Text style={styles.otpLabel}>Enter End OTP:</Text>
-          <OTPInput value={endOTP} onChange={setEndOTP} />
-          <TouchableOpacity style={styles.button} onPress={handleMarkEndAttendance}>
-            <Text style={styles.buttonText}>Mark End Attendance</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.button}
+                onPress={() => handleMarkAttendance('start')}
+              >
+                <Text style={styles.buttonText}>Mark Start Attendance</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.button, styles.leaveButton]}
-            onPress={() => navigation.navigate('LeaveRequest', { activityId })}
-          >
-            <Text style={styles.buttonText}>Request Leave</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#2196F3', marginTop: 12 }]}
+                onPress={() => handleMarkAttendance('end')}
+              >
+                <Text style={styles.buttonText}>Mark End Attendance</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={styles.statusBox}>
+              <Text style={styles.statusText}>
+                Session is {session.status}. OTP entry is only available during ongoing sessions.
+              </Text>
+            </View>
+          )}
         </View>
       )}
     </ScrollView>
   );
+};
+
+const getStatusColor = (status) => {
+  switch (status) {
+    case 'ongoing':
+      return '#4CAF50';
+    case 'completed':
+      return '#2196F3';
+    case 'scheduled':
+      return '#FF9800';
+    default:
+      return '#9E9E9E';
+  }
 };
 
 const styles = StyleSheet.create({
@@ -256,13 +244,13 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#999',
+    color: '#d32f2f',
   },
   card: {
     backgroundColor: '#fff',
-    margin: 15,
-    padding: 20,
-    borderRadius: 10,
+    margin: 12,
+    padding: 16,
+    borderRadius: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -270,100 +258,106 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#333',
-    marginBottom: 10,
+    marginBottom: 4,
   },
-  description: {
+  faculty: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 20,
-    lineHeight: 20,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 12,
   },
   infoRow: {
     flexDirection: 'row',
-    marginBottom: 10,
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
   label: {
     fontSize: 14,
+    fontWeight: '600',
     color: '#666',
-    width: 100,
   },
   value: {
     fontSize: 14,
     color: '#333',
-    flex: 1,
     fontWeight: '500',
   },
-  statusText: {
-    fontWeight: 'bold',
-  },
-  statusscheduled: {
-    color: '#FF9500',
-  },
-  statusongoing: {
-    color: '#34C759',
-  },
-  statuscompleted: {
-    color: '#8E8E93',
-  },
-  statuscancelled: {
-    color: '#FF3B30',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#1976D2',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
+    fontSize: 14,
   },
-  secondaryButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#007AFF',
-  },
-  secondaryButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  leaveButton: {
-    backgroundColor: '#FF9500',
-  },
-  otpDisplay: {
-    backgroundColor: '#f0f0f0',
-    padding: 15,
+  otpInput: {
+    borderWidth: 2,
+    borderColor: '#1976D2',
     borderRadius: 8,
-    marginTop: 10,
-    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: 2,
+    marginVertical: 12,
+  },
+  activeOTPBox: {
+    backgroundColor: '#E8F5E9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+    padding: 12,
+    borderRadius: 6,
+    marginTop: 12,
   },
   otpLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  otpDisplay: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    letterSpacing: 4,
+    textAlign: 'center',
+  },
+  otpExpiry: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  instructionText: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 8,
+    marginBottom: 12,
+    fontStyle: 'italic',
   },
-  otpValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    letterSpacing: 4,
+  statusBox: {
+    backgroundColor: '#FFF3E0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+    padding: 12,
+    borderRadius: 6,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#e0e0e0',
-    marginVertical: 20,
+  statusText: {
+    fontSize: 14,
+    color: '#E65100',
+    fontWeight: '500',
   },
 });
 
