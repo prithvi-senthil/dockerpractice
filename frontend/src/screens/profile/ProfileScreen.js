@@ -9,10 +9,10 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import Ionicons from "react-native-vector-icons/Ionicons";
-import { useAuth } from "../context/AuthContext";
-import API from "../services/api";
-import PendingCourseCard from "../components/PendingCourseCard";
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "../../context/AuthContext";
+import API from "../../services/api";
+import PendingCourseCard from "../../components/PendingCourseCard";
 
 const ProfileScreen = () => {
   const { user, logout } = useAuth();
@@ -103,19 +103,6 @@ const ProfileScreen = () => {
                 : "Student"}
           </Text>
         </View>
-
-        {user?.priority_level && (
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Priority Level:</Text>
-            <Text style={styles.infoValue}>
-              {user?.priority_level === 1
-                ? "Admin (Priority 1)"
-                : user?.priority_level === 2
-                  ? "Manager (Priority 2)"
-                  : "User (Priority 3)"}
-            </Text>
-          </View>
-        )}
       </View>
 
       {/* Pending Courses Section (Faculty Only) */}

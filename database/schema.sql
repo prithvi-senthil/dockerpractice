@@ -1,6 +1,7 @@
 -- Attendance Tracking System Database Schema
 
 -- Drop existing tables if they exist
+DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS session_attendance;
 DROP TABLE IF EXISTS attendance_records;
 DROP TABLE IF EXISTS leave_requests;
@@ -33,12 +34,23 @@ CREATE TABLE courses (
   max_students INT DEFAULT 50,
   assigned_faculty_id BIGINT NOT NULL,
   created_by BIGINT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  schedule_days VARCHAR(100),
+  time_slot_start TIME,
+  time_slot_end TIME,
+  assignment_status ENUM('pending', 'accepted', 'rejected') DEFAULT 'pending',
+  accepted_at TIMESTAMP NULL,
+  rejected_at TIMESTAMP NULL,
+  status ENUM('active', 'inactive', 'completed') DEFAULT 'active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (assigned_faculty_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_faculty (assigned_faculty_id),
-  INDEX idx_code (course_code)
+  INDEX idx_code (course_code),
+  INDEX idx_assignment_status (assignment_status),
+  INDEX idx_start_date (start_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Course sessions table (individual sessions for a course)
@@ -141,6 +153,26 @@ CREATE TABLE leave_requests (
   INDEX idx_student (student_id),
   INDEX idx_activity (activity_id),
   INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Notifications table (track course assignment accept/reject)
+CREATE TABLE notifications (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  course_id BIGINT,
+  reference_data JSON,
+  is_read TINYINT(1) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+  INDEX idx_user (user_id),
+  INDEX idx_type (type),
+  INDEX idx_is_read (is_read),
+  INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Insert sample users (password: 'admin123' or 'password123' hashed with bcrypt)

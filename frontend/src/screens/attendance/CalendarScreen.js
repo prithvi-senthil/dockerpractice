@@ -12,22 +12,55 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useAuth } from "../context/AuthContext";
-import api from "../services/api";
+import { useFocusEffect } from "@react-navigation/native";
+import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
 
-const CalendarScreen = ({ navigation }) => {
+const CalendarScreen = ({ navigation, route }) => {
   const { user } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("sessions");
-  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // ✅ Get initial date from route params if coming from CreateActivityScreen
+  const getInitialDate = () => {
+    if (route?.params?.selectedDate) {
+      return new Date(route.params.selectedDate);
+    }
+    return new Date();
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getInitialDate());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // ✅ Handle route params when coming from CreateActivityScreen
+  useEffect(() => {
+    if (route?.params?.selectedDate) {
+      setSelectedDate(new Date(route.params.selectedDate));
+      setActiveTab("sessions");
+    }
+    // Clear params after handling
+    if (route?.params?.refreshTrigger) {
+      setTimeout(() => {
+        route.params?.refreshTrigger && fetchData();
+      }, 500);
+    }
+  }, [route?.params?.selectedDate, route?.params?.refreshTrigger]);
+
+  // ✅ Fetch on component mount and when date/tab changes
   useEffect(() => {
     fetchData();
   }, [selectedDate, activeTab]);
+
+  // ✅ Refresh when screen comes into focus (after creating course)
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log("📅 Calendar focused - refreshing data");
+      fetchData();
+    }, []),
+  );
 
   const fetchData = async () => {
     try {
@@ -38,13 +71,30 @@ const CalendarScreen = ({ navigation }) => {
         const response = await api.get("/activities/sessions", {
           params: { date: dateStr },
         });
-        setSessions(response.data || []);
+        // API returns { sessions: [...] }
+        setSessions(response.data.sessions || response.data || []);
       } else {
         const response = await api.get("/activities/courses");
-        setCourses(response.data || []);
+        // API returns { courses: [...] }
+        let allCourses = response.data.courses || response.data || [];
+
+        // Filter courses based on role
+        if (user?.user_type === "faculty") {
+          // Faculty sees only their ACCEPTED courses
+          allCourses = allCourses.filter(
+            (c) => c.assignment_status === "accepted",
+          );
+        } else if (user?.user_type === "admin") {
+          // Admin sees all courses they created (any status)
+        }
+        // Student shouldn't see this tab but if they do, they see enrolled courses
+
+        console.log("📚 Filtered Courses:", allCourses);
+        setCourses(allCourses);
       }
     } catch (error) {
-      console.error("Fetch error:", error);
+      console.error("❌ Fetch error:", error);
+      Alert.alert("Error", "Failed to fetch data");
     } finally {
       setLoading(false);
     }
@@ -188,59 +238,106 @@ const CalendarScreen = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderCourseCard = (item) => (
-    <TouchableOpacity
-      key={item.id}
-      style={styles.courseCard}
-      onPress={() =>
-        navigation.navigate("ActivityDetail", {
-          courseId: item.id,
-          courseTitle: item.title,
-        })
-      }
-    >
-      <View style={styles.cardContent}>
-        <View style={styles.cardHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.courseCode}>{item.course_code}</Text>
-            <Text style={styles.courseTitle}>{item.title}</Text>
+  const renderCourseCard = (item) => {
+    // Determine assignment status badge color and label
+    const getAssignmentStatusColor = (status) => {
+      const colors = {
+        pending: "#FF9800",
+        accepted: "#4CAF50",
+        rejected: "#F44336",
+      };
+      return colors[status] || "#9E9E9E";
+    };
+
+    const isAccepted = item.assignment_status === "accepted";
+
+    return (
+      <TouchableOpacity
+        key={item.id}
+        style={styles.courseCard}
+        onPress={() =>
+          navigation.navigate("ActivityDetail", {
+            courseId: item.id,
+            courseTitle: item.title,
+          })
+        }
+      >
+        <View style={styles.cardContent}>
+          <View style={styles.cardHeader}>
+            <View style={{ flex: 1 }}>
+              {item.course_code && (
+                <Text style={styles.courseCode}>{item.course_code}</Text>
+              )}
+              <Text style={styles.courseTitle}>{item.title}</Text>
+            </View>
+            {user?.user_type === "admin" && (
+              <View
+                style={[
+                  styles.statusBadge,
+                  {
+                    backgroundColor: getAssignmentStatusColor(
+                      item.assignment_status,
+                    ),
+                  },
+                ]}
+              >
+                <Text style={styles.statusText}>
+                  {item.assignment_status?.toUpperCase()}
+                </Text>
+              </View>
+            )}
           </View>
+
+          <View style={styles.infoRow}>
+            <Ionicons name="person-circle-outline" size={16} color="#666" />
+            <Text style={styles.infoText}>
+              {item.faculty_name || "Unassigned"}
+            </Text>
+          </View>
+
+          {item.description && (
+            <Text style={styles.descriptionText} numberOfLines={2}>
+              {item.description}
+            </Text>
+          )}
+
+          <View style={styles.infoRow}>
+            <Ionicons name="people-outline" size={16} color="#666" />
+            <Text style={styles.infoText}>
+              {item.enrolled_count}/{item.max_students} enrolled
+            </Text>
+          </View>
+
+          {user?.user_type === "admin" && (
+            <>
+              {isAccepted ? (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: "#7d53f6" }]}
+                  onPress={() =>
+                    navigation.navigate("StudentEnrollment", {
+                      courseId: item.id,
+                    })
+                  }
+                >
+                  <Ionicons name="people-sharp" size={14} color="#fff" />
+                  <Text style={styles.actionBtnText}>Add Students</Text>
+                </TouchableOpacity>
+              ) : (
+                <View
+                  style={[styles.actionBtn, { backgroundColor: "#CCCCCC" }]}
+                >
+                  <Ionicons name="hourglass-outline" size={14} color="#fff" />
+                  <Text style={styles.actionBtnText}>
+                    ⏳ Waiting for approval
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
         </View>
-
-        <View style={styles.infoRow}>
-          <Ionicons name="person-circle-outline" size={16} color="#666" />
-          <Text style={styles.infoText}>
-            {item.faculty_name || "Unassigned"}
-          </Text>
-        </View>
-
-        {item.description && (
-          <Text style={styles.descriptionText} numberOfLines={2}>
-            {item.description}
-          </Text>
-        )}
-
-        <View style={styles.infoRow}>
-          <Ionicons name="people-outline" size={16} color="#666" />
-          <Text style={styles.infoText}>
-            {item.enrolled_count}/{item.max_students} enrolled
-          </Text>
-        </View>
-
-        {user?.user_type === "admin" && (
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: "#FF9800" }]}
-            onPress={() =>
-              navigation.navigate("StudentList", { courseId: item.id })
-            }
-          >
-            <Ionicons name="people-sharp" size={14} color="#fff" />
-            <Text style={styles.actionBtnText}>Manage Students</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -253,10 +350,6 @@ const CalendarScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>📅 Calendar</Text>
-      </View>
-
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tab, activeTab === "sessions" && styles.tabActive]}
@@ -387,18 +480,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 16,
     color: "#666",
-  },
-  header: {
-    backgroundColor: "#fff",
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E0E0E0",
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#1A1A1A",
   },
   tabBar: {
     flexDirection: "row",

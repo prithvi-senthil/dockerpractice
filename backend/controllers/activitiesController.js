@@ -7,6 +7,25 @@ const {
 } = require("../config/redis");
 
 // ═══════════════════════════════════════════════════════════
+// UTILITY: Convert TIME to minutes for numeric comparison
+// ═══════════════════════════════════════════════════════════
+const timeToMinutes = (timeStr) => {
+  if (!timeStr) return 0;
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+// Check if two time ranges overlap
+const doTimesOverlap = (start1, end1, start2, end2) => {
+  const s1 = timeToMinutes(start1);
+  const e1 = timeToMinutes(end1);
+  const s2 = timeToMinutes(start2);
+  const e2 = timeToMinutes(end2);
+
+  return s2 < e1 && e2 > s1; // ✅ Standard overlap formula
+};
+
+// ═══════════════════════════════════════════════════════════
 // COURSE MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
@@ -36,7 +55,9 @@ exports.createCourse = async (req, res) => {
       !time_slot_start ||
       !time_slot_end
     ) {
-      return res.status(400).json({ error: "All required fields must be provided" });
+      return res
+        .status(400)
+        .json({ error: "All required fields must be provided" });
     }
 
     // ✅ CHECK TIME CONFLICT FOR FACULTY
@@ -52,46 +73,57 @@ exports.createCourse = async (req, res) => {
          )`,
       [
         assigned_faculty_id,
-        end_date, start_date,
-        start_date, end_date,
-        start_date, end_date,
-      ]
+        end_date,
+        start_date,
+        start_date,
+        end_date,
+        start_date,
+        end_date,
+      ],
     );
 
     // Check if any conflicting course shares schedule days AND time overlap
     for (const conflict of conflicts) {
-      const existingDays = conflict.schedule_days.split(",").map((d) => d.trim());
+      const existingDays = conflict.schedule_days
+        .split(",")
+        .map((d) => d.trim());
       const newDays = schedule_days.split(",").map((d) => d.trim());
       const sharedDays = existingDays.filter((d) => newDays.includes(d));
 
       if (sharedDays.length > 0) {
-        // Check time overlap
-        const existingStart = conflict.time_slot_start;
-        const existingEnd = conflict.time_slot_end;
-        const newStart = time_slot_start;
-        const newEnd = time_slot_end;
+        // ✅ Use numeric comparison for time overlap
+        const hasTimeConflict = doTimesOverlap(
+          conflict.time_slot_start,
+          conflict.time_slot_end,
+          time_slot_start,
+          time_slot_end,
+        );
 
-        if (
-          (newStart >= existingStart && newStart < existingEnd) ||
-          (newEnd > existingStart && newEnd <= existingEnd) ||
-          (newStart <= existingStart && newEnd >= existingEnd)
-        ) {
+        if (hasTimeConflict) {
           return res.status(400).json({
-            error: `Time conflict! Faculty already has "${conflict.title}" on ${sharedDays.join(", ")} at ${existingStart}-${existingEnd}`,
+            error: `❌ Time conflict! Faculty already has "${conflict.title}" on ${sharedDays.join(", ")} from ${conflict.time_slot_start} to ${conflict.time_slot_end}. Choose a different time slot.`,
           });
         }
       }
     }
 
-    // Create course
+    // Generate unique course code (e.g., CS-20260420-001)
+    const courseCode = `${title.substring(0, 2).toUpperCase()}-${start_date.replace(/-/g, "")}-${Math.floor(
+      Math.random() * 1000,
+    )
+      .toString()
+      .padStart(3, "0")}`;
+
+    // Create course with 'pending' status for faculty acceptance
     const [result] = await db.query(
       `INSERT INTO courses 
-       (title, description, created_by, assigned_faculty_id, start_date, end_date, 
-        schedule_days, time_slot_start, time_slot_end, max_students, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+       (title, description, course_code, created_by, assigned_faculty_id, start_date, end_date, 
+        schedule_days, time_slot_start, time_slot_end, max_students, assignment_status, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'active')`,
       [
         title,
         description,
+        courseCode,
         created_by,
         assigned_faculty_id,
         start_date,
@@ -100,31 +132,30 @@ exports.createCourse = async (req, res) => {
         time_slot_start,
         time_slot_end,
         max_students || 60,
-      ]
+      ],
     );
 
     const courseId = result.insertId;
 
-    // Send notification to faculty
+    // Send notification to faculty - asking for acceptance/rejection
     await db.query(
-      `INSERT INTO notifications (user_id, type, reference_id, message, is_read)
-       VALUES (?, 'COURSE_ASSIGNED', ?, ?, FALSE)`,
-      [assigned_faculty_id, courseId, `You have been assigned to course: ${title}`]
+      `INSERT INTO notifications (user_id, type, title, message, course_id, is_read)
+       VALUES (?, 'COURSE_PENDING_ACCEPTANCE', ?, ?, ?, 0)`,
+      [
+        assigned_faculty_id,
+        `New Course Assignment: ${title}`,
+        `📋 New course assignment: "${title}" waiting for your acceptance. Review and accept/reject in your pending courses.`,
+        courseId,
+      ],
     );
 
-    // Auto-generate sessions
-    await generateCourseSessions(
-      courseId,
-      start_date,
-      end_date,
-      schedule_days,
-      time_slot_start,
-      time_slot_end
-    );
+    // ⏳ DON'T auto-generate sessions yet - wait for faculty acceptance
+    // Sessions will be generated only after faculty accepts
 
     res.status(201).json({
-      message: "Course created successfully",
+      message: "✅ Course created! Waiting for faculty acceptance.",
       course_id: courseId,
+      status: "pending",
     });
   } catch (error) {
     console.error("Create course error:", error);
@@ -139,34 +170,40 @@ async function generateCourseSessions(
   endDate,
   scheduleDays,
   startTime,
-  endTime
+  endTime,
 ) {
+  // Handle null schedule_days
+  if (!scheduleDays) {
+    return;
+  }
+
   const days = scheduleDays.split(",").map((d) => d.trim());
-  const dayMap = {
-    Sunday: 0,
-    Monday: 1,
-    Tuesday: 2,
-    Wednesday: 3,
-    Thursday: 4,
-    Friday: 5,
-    Saturday: 6,
-  };
 
   const start = new Date(startDate);
   const end = new Date(endDate);
 
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+  // Correctly iterate through dates
+  for (let d = new Date(start); d <= end; ) {
     const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
 
     if (days.includes(dayName)) {
       const sessionDate = d.toISOString().split("T")[0];
+      // Format time as HH:MM (VARCHAR(5) expects 5 chars)
+      const formattedStartTime =
+        typeof startTime === "string"
+          ? startTime.substring(0, 5) // "HH:MM:SS" -> "HH:MM"
+          : startTime;
+      const formattedEndTime =
+        typeof endTime === "string" ? endTime.substring(0, 5) : endTime;
 
       await db.query(
         `INSERT INTO course_sessions (course_id, session_date, start_time, end_time, status)
          VALUES (?, ?, ?, ?, 'scheduled')`,
-        [courseId, sessionDate, startTime, endTime]
+        [courseId, sessionDate, formattedStartTime, formattedEndTime],
       );
     }
+    // Increment date
+    d.setDate(d.getDate() + 1);
   }
 }
 
@@ -216,7 +253,7 @@ exports.getCourseById = async (req, res) => {
        FROM courses c
        LEFT JOIN users u ON c.assigned_faculty_id = u.id
        WHERE c.id = ?`,
-      [id]
+      [id],
     );
 
     if (courses.length === 0) {
@@ -246,7 +283,7 @@ exports.addStudentsToCourse = async (req, res) => {
       const [result] = await db.query(
         `INSERT IGNORE INTO course_enrollments (course_id, student_id, enrolled_by)
          VALUES (?, ?, ?)`,
-        [courseId, studentId, enrolledBy]
+        [courseId, studentId, enrolledBy],
       );
       if (result.affectedRows > 0) added++;
     }
@@ -269,7 +306,7 @@ exports.getCourseStudents = async (req, res) => {
        JOIN users u ON ce.student_id = u.id
        WHERE ce.course_id = ?
        ORDER BY u.name`,
-      [courseId]
+      [courseId],
     );
 
     res.json({ students });
@@ -288,7 +325,7 @@ exports.getCourseSessions = async (req, res) => {
       `SELECT * FROM course_sessions 
        WHERE course_id = ? 
        ORDER BY session_date DESC, start_time`,
-      [courseId]
+      [courseId],
     );
 
     res.json({ sessions });
@@ -352,7 +389,7 @@ exports.getSessionById = async (req, res) => {
        JOIN courses c ON cs.course_id = c.id
        LEFT JOIN users u ON c.assigned_faculty_id = u.id
        WHERE cs.id = ?`,
-      [id]
+      [id],
     );
 
     if (sessions.length === 0) {
@@ -360,8 +397,8 @@ exports.getSessionById = async (req, res) => {
     }
 
     // Get active OTP if exists
-    const startOTP = await getActiveOTP(`session:${id}:start`);
-    const endOTP = await getActiveOTP(`session:${id}:end`);
+    const startOTP = await getActiveOTP(`start:session:${id}`); // ✅ MATCH format
+    const endOTP = await getActiveOTP(`end:session:${id}`); // ✅ MATCH format
 
     res.json({
       ...sessions[0],
@@ -382,7 +419,7 @@ exports.getSessionStudents = async (req, res) => {
     // Get course_id from session
     const [sessions] = await db.query(
       `SELECT course_id FROM course_sessions WHERE id = ?`,
-      [id]
+      [id],
     );
 
     if (sessions.length === 0) {
@@ -400,7 +437,7 @@ exports.getSessionStudents = async (req, res) => {
        LEFT JOIN session_attendance sa ON sa.session_id = ? AND sa.student_id = u.id
        WHERE ce.course_id = ?
        ORDER BY u.name`,
-      [id, courseId]
+      [id, courseId],
     );
 
     res.json({ students });
@@ -426,7 +463,7 @@ exports.generateStartOTP = async (req, res) => {
        FROM course_sessions cs
        JOIN courses c ON cs.course_id = c.id
        WHERE cs.id = ?`,
-      [id]
+      [id],
     );
 
     if (sessions.length === 0) {
@@ -441,12 +478,14 @@ exports.generateStartOTP = async (req, res) => {
     const sessionDate = new Date(sessions[0].session_date);
     const today = new Date();
     if (sessionDate.toDateString() !== today.toDateString()) {
-      return res.status(400).json({ error: "Can only generate OTP on session day" });
+      return res
+        .status(400)
+        .json({ error: "Can only generate OTP on session day" });
     }
 
     // Generate OTP
     const otp = generateOTP();
-    const key = `session:${id}:start`;
+    const key = `start:session:${id}`; // ✅ MATCH attendanceController format
     await storeOTP(key, otp, userId);
 
     // Update session status
@@ -454,7 +493,7 @@ exports.generateStartOTP = async (req, res) => {
       `UPDATE course_sessions 
        SET start_otp = ?, otp_generated_at = NOW(), status = 'ongoing' 
        WHERE id = ?`,
-      [otp, id]
+      [otp, id],
     );
 
     res.json({
@@ -479,7 +518,7 @@ exports.generateEndOTP = async (req, res) => {
        FROM course_sessions cs
        JOIN courses c ON cs.course_id = c.id
        WHERE cs.id = ?`,
-      [id]
+      [id],
     );
 
     if (sessions.length === 0) {
@@ -491,14 +530,14 @@ exports.generateEndOTP = async (req, res) => {
     }
 
     const otp = generateOTP();
-    const key = `session:${id}:end`;
+    const key = `end:session:${id}`; // ✅ MATCH attendanceController format
     await storeOTP(key, otp, userId);
 
     await db.query(
       `UPDATE course_sessions 
        SET end_otp = ?, status = 'completed' 
        WHERE id = ?`,
-      [otp, id]
+      [otp, id],
     );
 
     res.json({
@@ -520,7 +559,7 @@ exports.generateEndOTP = async (req, res) => {
 exports.getFaculty = async (req, res) => {
   try {
     const [faculty] = await db.query(
-      `SELECT id, name, email FROM users WHERE user_type = 'faculty' AND is_active = TRUE ORDER BY name`
+      `SELECT id, name, email FROM users WHERE user_type = 'faculty' AND is_active = TRUE ORDER BY name`,
     );
     res.json({ faculty });
   } catch (error) {
@@ -533,7 +572,7 @@ exports.getFaculty = async (req, res) => {
 exports.getStudents = async (req, res) => {
   try {
     const [students] = await db.query(
-      `SELECT id, name, email FROM users WHERE user_type = 'student' AND is_active = TRUE ORDER BY name`
+      `SELECT id, name, email FROM users WHERE user_type = 'student' AND is_active = TRUE ORDER BY name`,
     );
     res.json({ students });
   } catch (error) {
@@ -552,10 +591,11 @@ exports.checkScheduleConflict = async (req, res) => {
       schedule_days,
       time_slot_start,
       time_slot_end,
+      course_title,
     } = req.body;
 
     const [conflicts] = await db.query(
-      `SELECT c.title, c.schedule_days, c.time_slot_start, c.time_slot_end
+      `SELECT c.id, c.title, c.schedule_days, c.time_slot_start, c.time_slot_end, c.start_date, c.end_date
        FROM courses c
        WHERE c.assigned_faculty_id = ?
          AND c.status = 'active'
@@ -566,33 +606,248 @@ exports.checkScheduleConflict = async (req, res) => {
          )`,
       [
         faculty_id,
-        end_date, start_date,
-        start_date, end_date,
-        start_date, end_date,
-      ]
+        end_date,
+        start_date,
+        start_date,
+        end_date,
+        start_date,
+        end_date,
+      ],
     );
 
-    const hasConflict = conflicts.some((conflict) => {
-      const existingDays = conflict.schedule_days.split(",").map((d) => d.trim());
+    // Filter conflicts by time overlap
+    const actualConflicts = conflicts.filter((conflict) => {
+      const existingDays = conflict.schedule_days
+        .split(",")
+        .map((d) => d.trim());
       const newDays = schedule_days.split(",").map((d) => d.trim());
       const sharedDays = existingDays.filter((d) => newDays.includes(d));
 
       if (sharedDays.length === 0) return false;
 
-      const existingStart = conflict.time_slot_start;
-      const existingEnd = conflict.time_slot_end;
-
-      return (
-        (time_slot_start >= existingStart && time_slot_start < existingEnd) ||
-        (time_slot_end > existingStart && time_slot_end <= existingEnd) ||
-        (time_slot_start <= existingStart && time_slot_end >= existingEnd)
+      // ✅ Use numeric comparison for time overlap
+      return doTimesOverlap(
+        conflict.time_slot_start,
+        conflict.time_slot_end,
+        time_slot_start,
+        time_slot_end,
       );
     });
 
-    res.json({ has_conflict: hasConflict, conflicts });
+    const hasConflict = actualConflicts.length > 0;
+
+    res.json({
+      has_conflict: hasConflict,
+      conflict_count: actualConflicts.length,
+      conflicts: actualConflicts.map((c) => ({
+        id: c.id,
+        title: c.title,
+        schedule_days: c.schedule_days,
+        time_slot_start: c.time_slot_start,
+        time_slot_end: c.time_slot_end,
+        start_date: c.start_date,
+        end_date: c.end_date,
+      })),
+      proposed_course: {
+        title: course_title || "New Course",
+        schedule_days,
+        time_slot_start,
+        time_slot_end,
+        start_date,
+        end_date,
+      },
+    });
   } catch (error) {
     console.error("Check conflict error:", error);
     res.status(500).json({ error: "Failed to check conflict" });
+  }
+};
+
+// ═══════════════════════════════════════════════════════════
+// COURSE ACCEPTANCE/REJECTION (Faculty)
+// ═══════════════════════════════════════════════════════════
+
+// Faculty ACCEPTS course assignment
+exports.acceptCourse = async (req, res) => {
+  try {
+    const { courseId: id } = req.params;
+    const facultyId = req.user.id;
+
+    console.log(
+      `🔍 Accept course attempt - Course ID: ${id}, Faculty ID: ${facultyId}, Faculty Name: ${req.user.name}`,
+    );
+
+    // Verify course exists and is assigned to this faculty
+    const [courses] = await db.query(
+      `SELECT * FROM courses WHERE id = ? AND assigned_faculty_id = ? AND assignment_status = 'pending'`,
+      [id, facultyId],
+    );
+
+    console.log(
+      `📊 Query result: ${courses.length} courses found matching criteria`,
+    );
+
+    if (courses.length === 0) {
+      // Debug: Check what we actually have in DB
+      const [allCourses] = await db.query(
+        `SELECT id, assigned_faculty_id, assignment_status FROM courses WHERE id = ?`,
+        [id],
+      );
+      console.log(
+        `❌ Course not found with matching criteria. DB has:`,
+        allCourses,
+      );
+      return res
+        .status(404)
+        .json({ error: "Course not found or already processed" });
+    }
+
+    const course = courses[0];
+
+    // Update course assignment status to 'accepted'
+    await db.query(
+      `UPDATE courses SET assignment_status = 'accepted', accepted_at = NOW() WHERE id = ?`,
+      [id],
+    );
+
+    // Generate sessions now that faculty accepted
+    await generateCourseSessions(
+      id,
+      course.start_date,
+      course.end_date,
+      course.schedule_days,
+      course.time_slot_start,
+      course.time_slot_end,
+    );
+
+    // Notify admin that faculty accepted
+    await db.query(
+      `INSERT INTO notifications (user_id, type, title, message, course_id, reference_data, is_read)
+       VALUES (?, ?, ?, ?, ?, ?, FALSE)`,
+      [
+        course.created_by,
+        "COURSE_ACCEPTED",
+        `${course.title} - Accepted`,
+        `✅ Faculty accepted course "${course.title}". Sessions auto-generated.`,
+        id,
+        JSON.stringify({
+          course_id: id,
+          course_title: course.title,
+          action: "accepted",
+        }),
+      ],
+    );
+
+    res.json({
+      message: "✅ Course accepted! Sessions generated automatically.",
+      course_id: id,
+      status: "active",
+    });
+  } catch (error) {
+    console.error("Accept course error:", error);
+    res.status(500).json({ error: "Failed to accept course" });
+  }
+};
+
+// Faculty REJECTS course assignment
+exports.rejectCourse = async (req, res) => {
+  try {
+    const { courseId: id } = req.params;
+    const reason = req.body?.reason || "No reason provided";
+    const facultyId = req.user.id;
+
+    // Verify course exists and is assigned to this faculty
+    const [courses] = await db.query(
+      `SELECT * FROM courses WHERE id = ? AND assigned_faculty_id = ? AND assignment_status = 'pending'`,
+      [id, facultyId],
+    );
+
+    if (courses.length === 0) {
+      return res
+        .status(404)
+        .json({ error: "Course not found or already processed" });
+    }
+
+    const course = courses[0];
+
+    // Set course assignment status to 'rejected' (keep assigned_faculty_id since it's NOT NULL)
+    await db.query(
+      `UPDATE courses SET assignment_status = 'rejected', rejected_at = NOW() WHERE id = ?`,
+      [id],
+    );
+
+    // Notify admin that faculty rejected
+    await db.query(
+      `INSERT INTO notifications (user_id, type, title, message, course_id, reference_data, is_read)
+       VALUES (?, ?, ?, ?, ?, ?, FALSE)`,
+      [
+        course.created_by,
+        "COURSE_REJECTED",
+        `${course.title} - Rejected`,
+        `❌ Faculty rejected course "${course.title}". Reason: ${reason || "No reason provided"}. Reassign to another faculty.`,
+        id,
+        JSON.stringify({
+          course_id: id,
+          course_title: course.title,
+          reason: reason || "No reason provided",
+          action: "rejected",
+        }),
+      ],
+    );
+
+    res.json({
+      message: "✅ Course rejected. Admin notified for reassignment.",
+      course_id: id,
+      status: "inactive",
+    });
+  } catch (error) {
+    console.error("Reject course error:", error);
+    res.status(500).json({ error: "Failed to reject course" });
+  }
+};
+
+// Get PENDING courses for faculty
+exports.getPendingCourses = async (req, res) => {
+  try {
+    const facultyId = req.user.id;
+
+    const [courses] = await db.query(
+      `SELECT c.*, 
+              u.name as faculty_name,
+              (SELECT COUNT(*) FROM course_enrollments WHERE course_id = c.id) as enrolled_count
+       FROM courses c
+       LEFT JOIN users u ON c.created_by = u.id
+       WHERE c.assigned_faculty_id = ? AND c.assignment_status = 'pending'
+       ORDER BY c.created_at DESC`,
+      [facultyId],
+    );
+
+    res.json({ courses });
+  } catch (error) {
+    console.error("Get pending courses error:", error);
+    res.status(500).json({ error: "Failed to fetch pending courses" });
+  }
+};
+
+// Get UNASSIGNED courses for admin (rejected courses)
+exports.getUnassignedCourses = async (req, res) => {
+  try {
+    const [courses] = await db.query(
+      `SELECT c.*, 
+              u.name as created_by_name
+       FROM courses c
+       LEFT JOIN users u ON c.created_by = u.id
+       WHERE c.assigned_faculty_id IS NULL AND c.status = 'inactive'
+       ORDER BY c.created_at DESC`,
+    );
+
+    res.json({
+      unassigned_courses: courses,
+      count: courses.length,
+    });
+  } catch (error) {
+    console.error("Get unassigned courses error:", error);
+    res.status(500).json({ error: "Failed to fetch unassigned courses" });
   }
 };
 

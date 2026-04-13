@@ -14,8 +14,10 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import api from "../services/api";
-import { useAuth } from "../context/AuthContext";
+import api from "../../services/api";
+import { checkScheduleConflict } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
+import ConflictAlertModal from "../../components/ConflictAlertModal";
 
 const DAYS_OF_WEEK = [
   { key: "Monday", label: "Mon", short: "M" },
@@ -43,6 +45,10 @@ const CreateActivityScreen = ({ navigation }) => {
   const [showFacultyModal, setShowFacultyModal] = useState(false);
   const [facultySearch, setFacultySearch] = useState("");
   const [loadingFaculty, setLoadingFaculty] = useState(false);
+
+  // Conflict checking state
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflicts, setConflicts] = useState([]);
 
   const [selectedDays, setSelectedDays] = useState([
     "Monday",
@@ -159,33 +165,24 @@ const CreateActivityScreen = ({ navigation }) => {
     }
   };
 
-  const handleCreate = async () => {
-    if (!title.trim() || !courseCode.trim() || !assignedFacultyId) {
-      Alert.alert("Error", "Please fill in all required fields");
-      return;
-    }
-
-    if (selectedDays.length === 0) {
-      Alert.alert("Error", "Please select at least one day of the week");
-      return;
-    }
-
+  // Create course without checking conflicts
+  const createCourseDirectly = async () => {
     setLoading(true);
     try {
       const payload = {
         title: title.trim(),
         description: description.trim(),
-        course_code: courseCode.trim(),
         max_students: parseInt(maxStudents) || 60,
         assigned_faculty_id: parseInt(assignedFacultyId),
         schedule_days: selectedDays.join(","),
-        start_time: formatTime(startTime),
-        end_time: formatTime(endTime),
+        time_slot_start: formatTime(startTime),
+        time_slot_end: formatTime(endTime),
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
       };
 
-      await api.post("/activities/courses", payload);
+      console.log("📤 Creating course with payload:", payload);
+      const response = await api.post("/activities/courses", payload);
 
       Alert.alert("Success", "Course created successfully!", [
         {
@@ -198,7 +195,13 @@ const CreateActivityScreen = ({ navigation }) => {
             setAssignedFacultyId("");
             setAssignedFacultyName("Select Faculty...");
             setSelectedDays(["Monday", "Wednesday", "Friday"]);
-            navigation.goBack();
+
+            // ✅ Navigate to Calendar and pass the start date of the created course
+            navigation.navigate("Calendar", {
+              selectedDate: startDate.toISOString().split("T")[0],
+              courseId: response.data?.course_id,
+              refreshTrigger: true,
+            });
           },
         },
       ]);
@@ -210,6 +213,48 @@ const CreateActivityScreen = ({ navigation }) => {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!title.trim() || !courseCode.trim() || !assignedFacultyId) {
+      Alert.alert("Error", "Please fill in all required fields");
+      return;
+    }
+
+    if (selectedDays.length === 0) {
+      Alert.alert("Error", "Please select at least one day of the week");
+      return;
+    }
+
+    // Check for conflicts first
+    setLoading(true);
+    try {
+      const conflictData = {
+        faculty_id: parseInt(assignedFacultyId),
+        start_date: formatDate(startDate),
+        end_date: formatDate(endDate),
+        schedule_days: selectedDays.join(","),
+        time_slot_start: formatTime(startTime),
+        time_slot_end: formatTime(endTime),
+        course_title: title.trim(),
+      };
+
+      const response = await checkScheduleConflict(conflictData);
+
+      if (response.has_conflict) {
+        setConflicts(response.conflicts);
+        setShowConflictModal(true);
+        setLoading(false);
+        return;
+      }
+
+      // No conflicts, proceed with course creation
+      await createCourseDirectly();
+    } catch (error) {
+      console.error("Conflict check error:", error);
+      // Continue anyway if conflict check fails
+      await createCourseDirectly();
     }
   };
 
@@ -497,6 +542,19 @@ const CreateActivityScreen = ({ navigation }) => {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Conflict Alert Modal */}
+      <ConflictAlertModal
+        visible={showConflictModal}
+        conflicts={conflicts}
+        onDismiss={() => {
+          setShowConflictModal(false);
+        }}
+        onReassign={() => {
+          setShowConflictModal(false);
+        }}
+        loading={loading}
+      />
     </ScrollView>
   );
 };
