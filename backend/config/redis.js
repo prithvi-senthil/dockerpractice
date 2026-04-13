@@ -26,27 +26,27 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Store OTP in Redis (5 min expiry) - Generic key-based
+// Store OTP in Redis (10 SECONDS expiry - per SRS requirement)
 const storeOTP = async (key, otpCode, creatorId) => {
   const otpData = {
     otp_code: otpCode,
     creator_id: creatorId,
     generated_at: new Date().toISOString(),
   };
-  await redisClient.setEx(key, 300, JSON.stringify(otpData)); // 5 min expiry
-  console.log(`✅ OTP stored: ${key}`);
+  await redisClient.setEx(key, 10, JSON.stringify(otpData)); // 10 SECONDS
+  console.log(`✅ OTP stored (10s): ${key}`);
 };
 
-// Verify OTP - Generic key-based
+// Verify OTP
 const verifyOTP = async (key, otpCode) => {
   const otpDataStr = await redisClient.get(key);
-
+  
   if (!otpDataStr) {
     return { valid: false, reason: "OTP not found or expired" };
   }
 
   const otpData = JSON.parse(otpDataStr);
-
+  
   if (otpData.otp_code !== otpCode) {
     return { valid: false, reason: "Invalid OTP code" };
   }
@@ -54,15 +54,14 @@ const verifyOTP = async (key, otpCode) => {
   return { valid: true, otpData };
 };
 
-// Get active OTP (for creator to view) - Generic key-based
+// Get active OTP
 const getActiveOTP = async (key) => {
   const otpDataStr = await redisClient.get(key);
-
   if (!otpDataStr) return null;
-
+  
   const otpData = JSON.parse(otpDataStr);
   const ttl = await redisClient.ttl(key);
-
+  
   return {
     otp_code: otpData.otp_code,
     seconds_remaining: ttl,
