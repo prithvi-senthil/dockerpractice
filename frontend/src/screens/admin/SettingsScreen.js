@@ -9,9 +9,10 @@ import {
   Alert,
   TextInput,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import { useAuth } from "../context/AuthContext";
-import API from "../services/api";
+import { useAuth } from "../../context/AuthContext";
+import API from "../../services/api";
 
 const SettingsScreen = () => {
   const { user } = useAuth();
@@ -32,12 +33,19 @@ const SettingsScreen = () => {
   // Check if user is admin
   const isAdmin = user?.user_type === "admin";
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetchOTPSetting();
-      fetchWorkingHours();
-    }
-  }, [isAdmin]);
+  // Refetch data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log("📱 SettingsScreen FOCUSED - Refetching all data");
+      if (isAdmin) {
+        console.log("👤 User is admin, fetching...");
+        fetchOTPSetting();
+        fetchWorkingHours();
+      } else {
+        console.log("⛔ User is NOT admin");
+      }
+    }, [isAdmin]),
+  );
 
   const fetchOTPSetting = async () => {
     try {
@@ -59,17 +67,50 @@ const SettingsScreen = () => {
     try {
       setWorkingHoursLoading(true);
       const response = await API.get("/settings/working-hours");
+      console.log(
+        "📥 Full working hours response:",
+        JSON.stringify(response.data, null, 2),
+      );
+
       if (response.data) {
-        setWorkingHoursEnabled(response.data.enabled ?? true);
-        setWorkingStartTime(response.data.start_time || "08:00");
-        setWorkingEndTime(response.data.end_time || "17:00");
+        const enabledValue = response.data.working_hours_enabled;
+        console.log(
+          "🔍 enabledValue:",
+          enabledValue,
+          "| type:",
+          typeof enabledValue,
+        );
+
+        // CRITICAL: Explicitly detect false vs true
+        // In JSON: false is literally false, true is literally true
+        let enabled;
+        if (enabledValue === false || enabledValue === "false") {
+          enabled = false;
+          console.log("✅ Correctly detected: FALSE");
+        } else if (enabledValue === true || enabledValue === "true") {
+          enabled = true;
+          console.log("✅ Correctly detected: TRUE");
+        } else {
+          // Fallback: treat as false for any other value
+          enabled = false;
+          console.log("⚠️  Unknown value, defaulting to FALSE");
+        }
+
+        console.log("🔧 FINAL: Setting workingHoursEnabled =", enabled);
+        setWorkingHoursEnabled(enabled);
+
+        setWorkingStartTime(
+          response.data.working_hours_start ||
+            response.data.start_time ||
+            "08:00",
+        );
+        setWorkingEndTime(
+          response.data.working_hours_end || response.data.end_time || "17:00",
+        );
       }
     } catch (error) {
-      console.error("Fetch working hours error:", error);
-      // Use defaults
-      setWorkingHoursEnabled(true);
-      setWorkingStartTime("08:00");
-      setWorkingEndTime("17:00");
+      console.error("❌ Fetch working hours error:", error);
+      // Do NOT change state on error - keep existing state
     } finally {
       setWorkingHoursLoading(false);
     }
@@ -87,6 +128,9 @@ const SettingsScreen = () => {
       setOtpSettingSaving(true);
       await API.put("/settings/otp-validity", { validity_seconds: seconds });
 
+      // Refetch the setting to ensure persistent display
+      await fetchOTPSetting();
+
       Alert.alert("Success", `OTP validity updated to ${seconds} seconds`, [
         { text: "OK" },
       ]);
@@ -103,6 +147,15 @@ const SettingsScreen = () => {
 
   const handleSaveWorkingHours = async () => {
     try {
+      console.log("💾 SAVING Working Hours - Current state:");
+      console.log(
+        "   workingHoursEnabled:",
+        workingHoursEnabled,
+        typeof workingHoursEnabled,
+      );
+      console.log("   workingStartTime:", workingStartTime);
+      console.log("   workingEndTime:", workingEndTime);
+
       // Validate time format (HH:MM)
       const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -128,12 +181,24 @@ const SettingsScreen = () => {
         return;
       }
 
-      setWorkingHoursSaving(true);
-      await API.put("/settings/working-hours", {
+      const payload = {
         enabled: workingHoursEnabled,
         start_time: workingStartTime,
         end_time: workingEndTime,
-      });
+      };
+
+      console.log("📤 Sending to backend:", JSON.stringify(payload, null, 2));
+
+      setWorkingHoursSaving(true);
+      const response = await API.put("/settings/working-hours", payload);
+
+      console.log(
+        "📥 Response from backend:",
+        JSON.stringify(response.data, null, 2),
+      );
+
+      // Refetch the settings to ensure persistent display
+      await fetchWorkingHours();
 
       Alert.alert(
         "Success",
@@ -242,7 +307,7 @@ const SettingsScreen = () => {
       {/* Working Hours Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Ionicons name="time-outline" size={24} color="#7d53f6" />
+          <Ionicons name="time" size={24} color="#7d53f6" />
           <Text style={styles.sectionTitle}>Working Hours</Text>
         </View>
 

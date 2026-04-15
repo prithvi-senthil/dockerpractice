@@ -1,179 +1,126 @@
 const db = require("../config/db");
-const { canUserViewAdminPanel } = require("../utils/adminPanelAccess");
 
 /**
  * GET /api/audit-logs
- * Get audit logs (admin only)
- * Query params: entity_type, action, limit, offset, actor_id
+ * Returns paginated audit log entries.
+ *
+ * Query params (all optional):
+ *   entity_type  – filter by type  (INFRASTRUCTURE | CATEGORY | SUBCATEGORY | USER_GROUP | SETTING | PRIORITY)
+ *   action       – filter by action (CREATE | UPDATE | DELETE)
+ *   actor_id     – filter by user who made the change
+ *   entity_id    – filter by specific record id
+ *   date_from    – ISO date string (inclusive)
+ *   date_to      – ISO date string (inclusive)
+ *   search       – free-text search in description / entity_name
+ *   page         – default 1
+ *   limit        – default 50, max 200
  */
 exports.getLogs = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can view audit logs" });
-    }
+    const {
+      entity_type,
+      action,
+      actor_id,
+      entity_id,
+      date_from,
+      date_to,
+      search,
+      page = 1,
+      limit = 50,
+    } = req.query;
 
-    const { entity_type, action, actor_id, limit = 50, offset = 0 } = req.query;
+    const safeLimit = Math.min(parseInt(limit) || 50, 200);
+    const offset = ((parseInt(page) || 1) - 1) * safeLimit;
 
-    let query = "SELECT * FROM audit_logs WHERE 1=1";
+    const conditions = [];
     const params = [];
 
     if (entity_type) {
-      query += " AND entity_type = ?";
-      params.push(entity_type);
+      conditions.push("al.entity_type = ?");
+      params.push(entity_type.toUpperCase());
     }
-
     if (action) {
-      query += " AND action = ?";
-      params.push(action);
+      conditions.push("al.action = ?");
+      params.push(action.toUpperCase());
     }
-
     if (actor_id) {
-      query += " AND actor_id = ?";
-      params.push(actor_id);
+      conditions.push("al.actor_id = ?");
+      params.push(parseInt(actor_id));
+    }
+    if (entity_id) {
+      conditions.push("al.entity_id = ?");
+      params.push(parseInt(entity_id));
     }
 
-    // Get total count
-    const countQu = query.replace("SELECT *", "SELECT COUNT(*) as count");
-    const [countResult] = await db.query(countQu, params);
-    const total = countResult[0].count;
+    if (date_from) {
+      conditions.push("al.created_at >= ?");
+      params.push(date_from);
+    }
+    if (date_to) {
+      conditions.push("al.created_at <= DATE_ADD(?, INTERVAL 1 DAY)");
+      params.push(date_to);
+    }
+    if (search) {
+      conditions.push("(al.description LIKE ? OR al.entity_name LIKE ?)");
+      const like = `%${search}%`;
+      params.push(like, like);
+    }
 
-    // Get paginated results
-    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-    params.push(parseInt(limit), parseInt(offset));
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
-    const [logs] = await db.query(query, params);
+    const [rows] = await db.query(
+      `SELECT
+         al.id,
+         al.action,
+         al.entity_type,
+         al.entity_id,
+         al.entity_name,
+         al.old_value,
+         al.new_value,
+         al.description,
+         al.created_at,
+         al.actor_id,
+         u.name   AS actor_name,
+         u.email  AS actor_email
+       FROM audit_logs al
+       LEFT JOIN users u ON al.actor_id = u.id
+       ${where}
+       ORDER BY al.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset],
+    );
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM audit_logs al ${where}`,
+      params,
+    );
 
     res.json({
-      logs,
+      logs: rows,
       pagination: {
+        page: parseInt(page) || 1,
+        limit: safeLimit,
         total,
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        pages: Math.ceil(total / parseInt(limit)),
+        total_pages: Math.ceil(total / safeLimit),
       },
     });
   } catch (error) {
-    console.error("❌ Get audit logs error:", error);
+    console.error("Get audit logs error:", error);
     res.status(500).json({ error: "Failed to fetch audit logs" });
   }
 };
 
 /**
- * GET /api/audit-logs/:id
- * Get single audit log detail
- */
-exports.getById = async (req, res) => {
-  try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can view audit logs" });
-    }
-
-    const [log] = await db.query(
-      "SELECT * FROM audit_logs WHERE id = ? LIMIT 1",
-      [req.params.id],
-    );
-
-    if (!log.length) {
-      return res.status(404).json({ error: "Audit log not found" });
-    }
-
-    // Parse JSON fields if present
-    const logEntry = log[0];
-    if (logEntry.old_value) {
-      try {
-        logEntry.old_value = JSON.parse(logEntry.old_value);
-      } catch {}
-    }
-    if (logEntry.new_value) {
-      try {
-        logEntry.new_value = JSON.parse(logEntry.new_value);
-      } catch {}
-    }
-
-    res.json({ log: logEntry });
-  } catch (error) {
-    console.error("❌ Get audit log error:", error);
-    res.status(500).json({ error: "Failed to fetch audit log" });
-  }
-};
-
-/**
  * GET /api/audit-logs/entity-types
- * Get list of entity types that have audit logs
+ * Returns the distinct entity_type values present in the logs (for filtering UI).
  */
 exports.getEntityTypes = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
+    const [rows] = await db.query(
+      `SELECT DISTINCT entity_type FROM audit_logs ORDER BY entity_type`,
     );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can view audit logs" });
-    }
-
-    const [types] = await db.query(
-      "SELECT DISTINCT entity_type FROM audit_logs ORDER BY entity_type",
-    );
-
-    res.json({ entity_types: types.map((t) => t.entity_type) });
+    res.json({ entity_types: rows.map((r) => r.entity_type) });
   } catch (error) {
-    console.error("❌ Get entity types error:", error);
     res.status(500).json({ error: "Failed to fetch entity types" });
-  }
-};
-
-/**
- * GET /api/audit-logs/summary
- * Get audit logs summary (counts by entity type and action)
- */
-exports.getSummary = async (req, res) => {
-  try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can view audit logs" });
-    }
-
-    const [byEntity] = await db.query(
-      `SELECT entity_type, COUNT(*) as count 
-       FROM audit_logs 
-       GROUP BY entity_type 
-       ORDER BY count DESC`,
-    );
-
-    const [byAction] = await db.query(
-      `SELECT action, COUNT(*) as count 
-       FROM audit_logs 
-       GROUP BY action 
-       ORDER BY count DESC`,
-    );
-
-    const [recent] = await db.query(
-      `SELECT actor_name, action, entity_type, entity_name, created_at 
-       FROM audit_logs 
-       ORDER BY created_at DESC 
-       LIMIT 10`,
-    );
-
-    res.json({
-      summary: {
-        by_entity_type: byEntity,
-        by_action: byAction,
-        recent_actions: recent,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Get summary error:", error);
-    res.status(500).json({ error: "Failed to fetch summary" });
   }
 };

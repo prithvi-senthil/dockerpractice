@@ -36,7 +36,7 @@ const NotificationIcon = ({ onPress, tintColor = "#333" }) => {
       }}
       activeOpacity={0.6}
     >
-      <Ionicons name="notifications-outline" size={24} color={tintColor} />
+      <Ionicons name="notifications" size={24} color={tintColor} />
 
       {unreadCount > 0 && (
         <View style={styles.badge}>

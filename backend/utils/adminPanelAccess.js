@@ -1,55 +1,36 @@
 const db = require("../config/db");
 
 /**
- * Check if user can view admin panel
- * Priority Level 1 (Admin) always has access
- * Other users must be explicitly added to admin_panel_view_user_ids setting
+ * Check if a user has admin panel access.
+ * Admin panel access requires:
+ * 1. User type is 'admin' OR
+ * 2. User has a priority level that grants admin access
  */
-async function canUserViewAdminPanel(userId, priorityLevel) {
-  try {
-    // Priority Level 1 always has admin access
-    if (parseInt(priorityLevel) === 1) {
-      return true;
-    }
+const canUserViewAdminPanel = async (userId, priorityLevel) => {
+  if (!userId) return false;
 
-    // Check if user is explicitly allowed in settings
-    const [settings] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'admin_panel_view_user_ids' LIMIT 1",
+  try {
+    // Check if user is admin type or has appropriate priority level
+    const [rows] = await db.query(
+      `SELECT user_type, priority_level FROM users WHERE id = ?`,
+      [userId],
     );
 
-    if (!settings.length) return false;
+    if (!rows || rows.length === 0) return false;
 
-    try {
-      const allowedUserIds = JSON.parse(settings[0].setting_value || "[]");
-      return allowedUserIds.includes(parseInt(userId));
-    } catch {
-      return false;
-    }
+    const user = rows[0];
+
+    // Grant access to admins
+    if (user.user_type === "admin") return true;
+
+    // Grant access based on priority level (typically 1 = highest privilege)
+    if (user.priority_level && user.priority_level <= 2) return true;
+
+    return false;
   } catch (error) {
-    console.error("❌ canUserViewAdminPanel error:", error);
+    console.error("Error checking admin panel access:", error);
     return false;
   }
-}
-
-/**
- * Middleware to check admin panel access
- */
-const requireAdminPanel = async (req, res, next) => {
-  try {
-    const hasAccess = await canUserViewAdminPanel(
-      req.user?.id,
-      req.user?.priority_level,
-    );
-    if (!hasAccess) {
-      return res.status(403).json({ error: "Admin panel access denied" });
-    }
-    next();
-  } catch (error) {
-    res.status(500).json({ error: "Access check failed" });
-  }
 };
 
-module.exports = {
-  canUserViewAdminPanel,
-  requireAdminPanel,
-};
+module.exports = { canUserViewAdminPanel };

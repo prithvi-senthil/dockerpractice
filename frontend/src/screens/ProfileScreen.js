@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import {
   View,
   Text,
@@ -6,43 +6,12 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
-  ActivityIndicator,
-  RefreshControl,
 } from "react-native";
-import Ionicons from "react-native-vector-icons/Ionicons";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import API from "../services/api";
-import PendingCourseCard from "../components/PendingCourseCard";
 
-const ProfileScreen = () => {
+const ProfileScreen = ({ navigation }) => {
   const { user, logout } = useAuth();
-  const [pendingCourses, setPendingCourses] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    if (user?.user_type === "faculty") {
-      fetchPendingCourses();
-    }
-  }, [user?.user_type]);
-
-  const fetchPendingCourses = async () => {
-    try {
-      setLoading(true);
-      const response = await API.get("/activities/courses/pending");
-      setPendingCourses(response.data.courses || []);
-    } catch (error) {
-      console.error("Fetch pending courses error:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchPendingCourses();
-    setRefreshing(false);
-  };
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -56,16 +25,7 @@ const ProfileScreen = () => {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor="#7d53f6"
-        />
-      }
-    >
+    <ScrollView style={styles.container}>
       {/* Profile Header Card */}
       <View style={styles.card}>
         <View style={styles.avatarContainer}>
@@ -118,55 +78,9 @@ const ProfileScreen = () => {
         )}
       </View>
 
-      {/* Pending Courses Section (Faculty Only) */}
-      {user?.user_type === "faculty" && (
-        <View>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="time-outline" size={20} color="#7d53f6" />
-            <Text style={styles.sectionHeaderTitle}>
-              Pending Course Assignments
-            </Text>
-            {pendingCourses.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{pendingCourses.length}</Text>
-              </View>
-            )}
-          </View>
-
-          {loading && !refreshing ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#7d53f6" />
-            </View>
-          ) : pendingCourses.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={48}
-                color="#10B981"
-              />
-              <Text style={styles.emptyText}>No pending courses</Text>
-              <Text style={styles.emptySubText}>
-                You're all set! Check back for new course assignments.
-              </Text>
-            </View>
-          ) : (
-            <View>
-              {pendingCourses.map((course) => (
-                <PendingCourseCard
-                  key={course.id}
-                  course={course}
-                  onActionComplete={() => fetchPendingCourses()}
-                  refresh={fetchPendingCourses}
-                />
-              ))}
-            </View>
-          )}
-        </View>
-      )}
-
       {/* Logout Button */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={18} color="#fff" />
+        <Ionicons name="log-out" size={18} color="#fff" />
         <Text style={styles.logoutButtonText}>Logout</Text>
       </TouchableOpacity>
     </ScrollView>

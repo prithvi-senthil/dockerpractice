@@ -357,70 +357,7 @@ export const checkTimeConflict = async (infraId, startTime, endTime) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// SETTINGS API (Admin Only)
-// ═══════════════════════════════════════════════════════════
-
-export const getOtpValidity = async () => {
-  try {
-    const response = await api.get("/settings/otp-validity");
-    return response.data.otp_validity;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
-
-export const updateOtpValidity = async (otpValidity) => {
-  try {
-    const response = await api.post("/settings/otp-validity", {
-      otp_validity: otpValidity,
-    });
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
-
-export const getWorkingHours = async () => {
-  try {
-    const response = await api.get("/settings/working-hours");
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
-
-export const updateWorkingHours = async (startTime, endTime, enabled) => {
-  try {
-    const response = await api.post("/settings/working-hours", {
-      start_time: startTime,
-      end_time: endTime,
-      enabled,
-    });
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
-
-export const getAdminAccess = async () => {
-  try {
-    const response = await api.get("/settings/admin-access");
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
-
-export const updateAdminAccess = async (userIds) => {
-  try {
-    const response = await api.post("/settings/admin-access", {
-      user_ids: userIds,
-    });
-    return response.data;
-  } catch (error) {
-    throw error.response?.data || error;
-  }
-};
+// SETTINGS API (Admin Only - DEPRECATED, use uppercase versions below)
 
 // ═══════════════════════════════════════════════════════════
 // AUDIT LOGS API (Admin Only)
@@ -460,6 +397,197 @@ export const getAuditLogSummary = async () => {
   } catch (error) {
     throw error.response?.data || error;
   }
+};
+
+// ═══════════════════════════════════════════════════════════
+// SETTINGS API (Admin Only)
+// ═══════════════════════════════════════════════════════════
+
+export const getOTPValidity = async () => {
+  try {
+    const response = await api.get("/settings/otp-validity");
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const updateOTPValidity = async (validity_seconds) => {
+  try {
+    const response = await api.put("/settings/otp-validity", {
+      validity_seconds,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const getWorkingHours = async () => {
+  try {
+    const response = await api.get("/settings/working-hours");
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+export const updateWorkingHours = async (enabled, start_time, end_time) => {
+  try {
+    const response = await api.put("/settings/working-hours", {
+      enabled,
+      start_time,
+      end_time,
+    });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || error;
+  }
+};
+
+// ═══════════════════════════════════════════════════════════
+// AUDIT LOGS API (Admin Only)
+// ═══════════════════════════════════════════════════════════
+
+export const auditLogAPI = {
+  getLogs: async (params) => {
+    try {
+      const response = await api.get("/audit-logs", { params });
+      return response;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getEntityTypes: async () => {
+    try {
+      const response = await api.get("/audit-logs/entity-types");
+      return response;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+};
+
+// ═══════════════════════════════════════════════════════════
+// USER API (Faculty & Students)
+// ═══════════════════════════════════════════════════════════
+
+export const userAPI = {
+  getAssignableUsers: async (params = {}) => {
+    try {
+      const response = await api.get("/activities/faculty", { params });
+      return response.data.faculty || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getFaculty: async () => {
+    try {
+      const response = await api.get("/activities/faculty");
+      return response.data.faculty || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getStudents: async () => {
+    try {
+      const response = await api.get("/activities/students");
+      return response.data.students || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+};
+
+// ═══════════════════════════════════════════════════════════
+// COURSE API (Courses & Management)
+// ═══════════════════════════════════════════════════════════
+
+export const courseAPI = {
+  createCourse: async (courseData) => {
+    try {
+      const response = await api.post("/activities/courses", courseData);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getCourses: async () => {
+    try {
+      const response = await api.get("/activities/courses");
+      return response.data.courses || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getCourseById: async (courseId) => {
+    try {
+      const response = await api.get(`/activities/courses/${courseId}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  addStudents: async (courseId, studentIds) => {
+    try {
+      const response = await api.post(
+        `/activities/courses/${courseId}/students`,
+        { student_ids: studentIds },
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getStudents: async (courseId) => {
+    try {
+      const response = await api.get(
+        `/activities/courses/${courseId}/students`,
+      );
+      return response.data.students || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  getSessions: async (courseId) => {
+    try {
+      const response = await api.get(
+        `/activities/courses/${courseId}/sessions`,
+      );
+      return response.data.sessions || [];
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  acceptCourse: async (courseId) => {
+    try {
+      const response = await api.post(`/activities/courses/${courseId}/accept`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  rejectCourse: async (courseId, rejectData) => {
+    try {
+      const response = await api.post(
+        `/activities/courses/${courseId}/reject`,
+        rejectData,
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
 };
 
 export default api;

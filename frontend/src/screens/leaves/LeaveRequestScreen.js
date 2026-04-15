@@ -39,10 +39,10 @@ const LeaveRequestScreen = ({ navigation }) => {
 
   const fetchLeaveInfo = async () => {
     try {
-      const response = await api.get("/leave/statistics");
-      setLeaveBalance(response.data);
+      const summaryResponse = await api.get("/leaves/my-summary");
+      setLeaveBalance(summaryResponse.data);
 
-      const historyResponse = await api.get("/leave/my-requests");
+      const historyResponse = await api.get("/leaves");
       setLeaveHistory(historyResponse.data);
     } catch (error) {
       console.error("Fetch leave info error:", error);
@@ -75,7 +75,7 @@ const LeaveRequestScreen = ({ navigation }) => {
         leave_type: leaveType,
       };
 
-      await api.post("/leave/request", payload);
+      await api.post("/leaves", payload);
 
       Alert.alert("Success", "Leave request submitted!", [
         {

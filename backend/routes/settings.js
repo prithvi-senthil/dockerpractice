@@ -3,17 +3,15 @@ const router = express.Router();
 const { auth } = require("../middleware/auth");
 const settingsController = require("../controllers/settingsController");
 
-// Middleware
+// Middleware - All settings routes require authentication
 router.use(auth);
 
-// Routes
+// OTP Validity Settings
 router.get("/otp-validity", settingsController.getOtpValidity);
-router.post("/otp-validity", settingsController.updateOtpValidity);
+router.put("/otp-validity", settingsController.updateOtpValidity);
 
+// Working Hours Settings
 router.get("/working-hours", settingsController.getWorkingHours);
-router.post("/working-hours", settingsController.updateWorkingHours);
-
-router.get("/admin-access", settingsController.getAdminAccess);
-router.post("/admin-access", settingsController.updateAdminAccess);
+router.put("/working-hours", settingsController.updateWorkingHours);
 
 module.exports = router;

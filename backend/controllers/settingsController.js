@@ -1,79 +1,69 @@
 const db = require("../config/db");
 const auditLog = require("../utils/auditLog");
-const { canUserViewAdminPanel } = require("../utils/adminPanelAccess");
 
-/**
- * GET /api/settings/otp-validity
- * Get OTP validity setting
- */
+// GET /api/settings/otp-validity
 exports.getOtpValidity = async (req, res) => {
   try {
     const [setting] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'otp_validity_seconds' LIMIT 1",
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'otp_validity' LIMIT 1",
     );
 
-    const value = setting.length ? parseInt(setting[0].setting_value) : 300; // Default 5 minutes
-    res.json({ setting_key: "otp_validity_seconds", value });
+    const value = setting.length ? parseInt(setting[0].setting_value) : 10;
+    res.json({ setting_key: "otp_validity", value });
   } catch (error) {
     console.error("❌ Get OTP validity error:", error);
     res.status(500).json({ error: "Failed to fetch OTP setting" });
   }
 };
 
-/**
- * POST /api/settings/otp-validity
- * Update OTP validity setting (admin only)
- * Body: { value } - value in seconds (30-3600)
- */
+// PUT /api/settings/otp-validity (Admin only)
 exports.updateOtpValidity = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
+    const hasAdminAccess = req.user.user_type === "admin";
     if (!hasAdminAccess) {
       return res.status(403).json({ error: "Only admins can update settings" });
     }
 
-    const { value } = req.body;
+    const { validity_seconds } = req.body;
 
-    if (!value || parseInt(value) < 30 || parseInt(value) > 3600) {
+    if (
+      !validity_seconds ||
+      parseInt(validity_seconds) < 5 ||
+      parseInt(validity_seconds) > 300
+    ) {
       return res
         .status(400)
-        .json({ error: "OTP validity must be between 30 and 3600 seconds" });
+        .json({ error: "OTP validity must be between 5 and 300 seconds" });
     }
 
-    // Get current value
     const [current] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'otp_validity_seconds' LIMIT 1",
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'otp_validity' LIMIT 1",
     );
 
     const old_value = current.length ? current[0].setting_value : null;
 
-    // Update or insert
     await db.query(
       `INSERT INTO system_settings (setting_key, setting_value, description)
-       VALUES ('otp_validity_seconds', ?, 'OTP validity duration in seconds')
+       VALUES ('otp_validity', ?, 'OTP validity in seconds')
        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-      [value],
+      [validity_seconds],
     );
 
-    // Log the action
     await auditLog(
       req.user.id,
       "UPDATE",
       "SETTING",
       null,
-      "otp_validity_seconds",
-      { value: old_value },
-      { value },
-      `Updated OTP validity to ${value} seconds`,
+      "otp_validity",
+      { validity_seconds: old_value },
+      { validity_seconds },
+      `Updated OTP validity to ${validity_seconds} seconds`,
     );
 
     res.json({
       message: "OTP validity updated successfully",
-      setting_key: "otp_validity_seconds",
-      value: parseInt(value),
+      setting_key: "otp_validity",
+      value: parseInt(validity_seconds),
     });
   } catch (error) {
     console.error("❌ Update OTP validity error:", error);
@@ -81,95 +71,145 @@ exports.updateOtpValidity = async (req, res) => {
   }
 };
 
-/**
- * GET /api/settings/working-hours
- * Get working hours setting
- */
+// GET /api/settings/working-hours
 exports.getWorkingHours = async (req, res) => {
   try {
-    const [setting] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'working_hours' LIMIT 1",
+    const [settings] = await db.query(
+      `SELECT setting_key, setting_value FROM system_settings 
+       WHERE setting_key IN ('working_hours_start', 'working_hours_end', 'working_hours_enabled')`,
     );
 
-    let working_hours = {
-      start_time: "08:00",
-      end_time: "17:00",
-      enabled: true,
+    const result = {
+      working_hours_start: "09:00",
+      working_hours_end: "17:00",
+      working_hours_enabled: true,
     };
-    if (setting.length && setting[0].setting_value) {
-      working_hours = JSON.parse(setting[0].setting_value);
-    }
 
-    res.json({ setting_key: "working_hours", value: working_hours });
+    settings.forEach((s) => {
+      if (s.setting_key === "working_hours_enabled") {
+        // Explicitly handle both string and boolean values
+        result[s.setting_key] =
+          s.setting_value === "true" || s.setting_value === true;
+      } else {
+        result[s.setting_key] = s.setting_value;
+      }
+    });
+
+    console.log("✅ Working hours response:", {
+      working_hours_enabled: result.working_hours_enabled,
+      type: typeof result.working_hours_enabled,
+    });
+
+    res.json({
+      setting_key: "working_hours",
+      working_hours_start: result.working_hours_start,
+      working_hours_end: result.working_hours_end,
+      working_hours_enabled: result.working_hours_enabled,
+    });
   } catch (error) {
     console.error("❌ Get working hours error:", error);
     res.status(500).json({ error: "Failed to fetch working hours" });
   }
 };
 
-/**
- * POST /api/settings/working-hours
- * Update working hours setting (admin only)
- * Body: { start_time, end_time, enabled }
- */
+// PUT /api/settings/working-hours (Admin only)
 exports.updateWorkingHours = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
+    const hasAdminAccess = req.user.user_type === "admin";
     if (!hasAdminAccess) {
       return res.status(403).json({ error: "Only admins can update settings" });
     }
 
-    const { start_time, end_time, enabled } = req.body;
+    const { enabled, start_time, end_time } = req.body;
 
-    // Validate time format HH:MM
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    if (!timeRegex.test(start_time) || !timeRegex.test(end_time)) {
-      return res.status(400).json({ error: "Invalid time format. Use HH:MM" });
+    // Validate time format (HH:MM)
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (start_time && !timeRegex.test(start_time)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid start_time format. Use HH:MM" });
+    }
+    if (end_time && !timeRegex.test(end_time)) {
+      return res
+        .status(400)
+        .json({ error: "Invalid end_time format. Use HH:MM" });
     }
 
-    if (start_time >= end_time) {
+    // Validate that start time is before end time
+    if (start_time && end_time && start_time >= end_time) {
       return res
         .status(400)
         .json({ error: "Start time must be before end time" });
     }
 
-    // Get current value
-    const [current] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'working_hours' LIMIT 1",
+    // Get old values for audit log
+    const [currentSettings] = await db.query(
+      `SELECT setting_key, setting_value FROM system_settings 
+       WHERE setting_key IN ('working_hours_enabled', 'working_hours_start', 'working_hours_end')`,
     );
 
-    const old_value = current.length
-      ? JSON.parse(current[0].setting_value)
-      : null;
-    const new_value = { start_time, end_time, enabled };
+    const oldValues = {
+      enabled: true,
+      start_time: "09:00",
+      end_time: "17:00",
+    };
 
-    // Update or insert
-    await db.query(
-      `INSERT INTO system_settings (setting_key, setting_value, description)
-       VALUES ('working_hours', ?, 'Working hours for attendance')
-       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-      [JSON.stringify(new_value)],
-    );
+    currentSettings.forEach((s) => {
+      if (s.setting_key === "working_hours_enabled") {
+        oldValues.enabled = s.setting_value === "true";
+      } else if (s.setting_key === "working_hours_start") {
+        oldValues.start_time = s.setting_value;
+      } else if (s.setting_key === "working_hours_end") {
+        oldValues.end_time = s.setting_value;
+      }
+    });
 
-    // Log the action
+    // Update settings
+    if (enabled !== undefined) {
+      await db.query(
+        `INSERT INTO system_settings (setting_key, setting_value, description)
+         VALUES ('working_hours_enabled', ?, 'Whether working hours validation is enabled')
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [enabled ? "true" : "false"],
+      );
+    }
+
+    if (start_time) {
+      await db.query(
+        `INSERT INTO system_settings (setting_key, setting_value, description)
+         VALUES ('working_hours_start', ?, 'Working hours start time (HH:MM format)')
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [start_time],
+      );
+    }
+
+    if (end_time) {
+      await db.query(
+        `INSERT INTO system_settings (setting_key, setting_value, description)
+         VALUES ('working_hours_end', ?, 'Working hours end time (HH:MM format)')
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [end_time],
+      );
+    }
+
     await auditLog(
       req.user.id,
       "UPDATE",
       "SETTING",
       null,
       "working_hours",
-      old_value,
-      new_value,
-      `Updated working hours to ${start_time} - ${end_time}`,
+      oldValues,
+      { enabled, start_time, end_time },
+      "Updated working hours settings",
     );
 
     res.json({
       message: "Working hours updated successfully",
-      setting_key: "working_hours",
-      value: new_value,
+      settings: {
+        enabled: enabled !== undefined ? enabled : oldValues.enabled,
+        start_time: start_time || oldValues.start_time,
+        end_time: end_time || oldValues.end_time,
+      },
     });
   } catch (error) {
     console.error("❌ Update working hours error:", error);
@@ -177,105 +217,4 @@ exports.updateWorkingHours = async (req, res) => {
   }
 };
 
-/**
- * GET /api/settings/admin-access
- * Get admin panel access list
- */
-exports.getAdminAccess = async (req, res) => {
-  try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can view this" });
-    }
-
-    const [setting] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'admin_panel_view_user_ids' LIMIT 1",
-    );
-
-    let userIds = [];
-    if (setting.length && setting[0].setting_value) {
-      userIds = JSON.parse(setting[0].setting_value);
-    }
-
-    // Get user details
-    const [users] = await db.query(
-      `SELECT id, name, email, priority_level FROM users 
-       WHERE id IN (${userIds.length ? userIds.map(() => "?").join(",") : "0"})
-       ORDER BY name`,
-      userIds.length ? userIds : [],
-    );
-
-    res.json({
-      setting_key: "admin_panel_view_user_ids",
-      allowed_users: users,
-      user_ids: userIds,
-    });
-  } catch (error) {
-    console.error("❌ Get admin access error:", error);
-    res.status(500).json({ error: "Failed to fetch admin access" });
-  }
-};
-
-/**
- * POST /api/settings/admin-access
- * Update admin panel access list
- * Body: { user_ids: [] }
- */
-exports.updateAdminAccess = async (req, res) => {
-  try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
-    if (!hasAdminAccess) {
-      return res.status(403).json({ error: "Only admins can update settings" });
-    }
-
-    const { user_ids } = req.body;
-
-    if (!Array.isArray(user_ids)) {
-      return res.status(400).json({ error: "user_ids must be an array" });
-    }
-
-    // Get current value
-    const [current] = await db.query(
-      "SELECT setting_value FROM system_settings WHERE setting_key = 'admin_panel_view_user_ids' LIMIT 1",
-    );
-
-    const old_value = current.length
-      ? JSON.parse(current[0].setting_value)
-      : [];
-
-    // Update or insert
-    await db.query(
-      `INSERT INTO system_settings (setting_key, setting_value, description)
-       VALUES ('admin_panel_view_user_ids', ?, 'User IDs allowed to view admin panel')
-       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
-      [JSON.stringify(user_ids)],
-    );
-
-    // Log the action
-    await auditLog(
-      req.user.id,
-      "UPDATE",
-      "SETTING",
-      null,
-      "admin_panel_view_user_ids",
-      { user_ids: old_value },
-      { user_ids },
-      `Updated admin panel access for ${user_ids.length} users`,
-    );
-
-    res.json({
-      message: "Admin access updated successfully",
-      setting_key: "admin_panel_view_user_ids",
-      user_ids,
-    });
-  } catch (error) {
-    console.error("❌ Update admin access error:", error);
-    res.status(500).json({ error: "Failed to update admin access" });
-  }
-};
+module.exports = exports;

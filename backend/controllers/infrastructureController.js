@@ -1,26 +1,11 @@
 const db = require("../config/db");
 const auditLog = require("../utils/auditLog");
-const { canUserViewAdminPanel } = require("../utils/adminPanelAccess");
 
-/**
- * GET /api/infrastructure/list
- * Get all infrastructure (rooms, labs, halls, etc.)
- */
+// GET /api/infrastructure/list
 exports.getList = async (req, res) => {
   try {
     const [infrastructure] = await db.query(
-      `SELECT 
-        i.id,
-        i.name,
-        i.subtype,
-        i.capacity,
-        i.location,
-        i.is_active,
-        i.created_at,
-        i.updated_at
-       FROM infrastructure i
-       WHERE i.is_active = TRUE
-       ORDER BY i.name ASC`,
+      `SELECT * FROM infrastructure WHERE is_active = TRUE ORDER BY name ASC`,
     );
 
     res.json({ infrastructure });
@@ -30,10 +15,7 @@ exports.getList = async (req, res) => {
   }
 };
 
-/**
- * GET /api/infrastructure/:id
- * Get infrastructure by ID
- */
+// GET /api/infrastructure/:id
 exports.getById = async (req, res) => {
   try {
     const [infrastructure] = await db.query(
@@ -52,17 +34,10 @@ exports.getById = async (req, res) => {
   }
 };
 
-/**
- * POST /api/infrastructure/create
- * Create new infrastructure (admin only)
- * Body: { name, subtype, capacity, location }
- */
+// POST /api/infrastructure/create (Admin only)
 exports.create = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
+    const hasAdminAccess = req.user.user_type === "admin";
     if (!hasAdminAccess) {
       return res
         .status(403)
@@ -83,7 +58,6 @@ exports.create = async (req, res) => {
 
     const infraId = result.insertId;
 
-    // Log the action
     await auditLog(
       req.user.id,
       "CREATE",
@@ -105,16 +79,10 @@ exports.create = async (req, res) => {
   }
 };
 
-/**
- * PUT /api/infrastructure/:id
- * Update infrastructure (admin only)
- */
+// PUT /api/infrastructure/:id (Admin only)
 exports.update = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
+    const hasAdminAccess = req.user.user_type === "admin";
     if (!hasAdminAccess) {
       return res
         .status(403)
@@ -124,7 +92,6 @@ exports.update = async (req, res) => {
     const { name, subtype, capacity, location, is_active } = req.body;
     const infraId = req.params.id;
 
-    // Get current values
     const [current] = await db.query(
       "SELECT * FROM infrastructure WHERE id = ? LIMIT 1",
       [infraId],
@@ -169,20 +136,14 @@ exports.update = async (req, res) => {
       params,
     );
 
-    // Log the action
     await auditLog(
       req.user.id,
       "UPDATE",
       "INFRASTRUCTURE",
       infraId,
       current[0].name,
-      {
-        name: current[0].name,
-        subtype: current[0].subtype,
-        capacity: current[0].capacity,
-        location: current[0].location,
-      },
-      { name, subtype, capacity, location, is_active },
+      { name: current[0].name, subtype: current[0].subtype },
+      { name, subtype, capacity, location },
       `Updated infrastructure: ${current[0].name}`,
     );
 
@@ -193,16 +154,10 @@ exports.update = async (req, res) => {
   }
 };
 
-/**
- * DELETE /api/infrastructure/:id
- * Delete infrastructure (admin only)
- */
+// DELETE /api/infrastructure/:id (Admin only)
 exports.delete = async (req, res) => {
   try {
-    const hasAdminAccess = await canUserViewAdminPanel(
-      req.user.id,
-      req.user.priority_level,
-    );
+    const hasAdminAccess = req.user.user_type === "admin";
     if (!hasAdminAccess) {
       return res
         .status(403)
@@ -220,12 +175,10 @@ exports.delete = async (req, res) => {
       return res.status(404).json({ error: "Infrastructure not found" });
     }
 
-    // Soft delete
     await db.query("UPDATE infrastructure SET is_active = FALSE WHERE id = ?", [
       infraId,
     ]);
 
-    // Log the action
     await auditLog(
       req.user.id,
       "DELETE",
@@ -237,57 +190,85 @@ exports.delete = async (req, res) => {
       `Deleted infrastructure: ${infrastructure[0].name}`,
     );
 
-    res.json({
-      message: "Infrastructure deleted successfully",
-      id: infraId,
-    });
+    res.json({ message: "Infrastructure deleted successfully", id: infraId });
   } catch (error) {
     console.error("❌ Delete infrastructure error:", error);
     res.status(500).json({ error: "Failed to delete infrastructure" });
   }
 };
 
-/**
- * POST /api/infrastructure/:infraId/check-conflict
- * Check for time conflicts in infrastructure booking
- * Body: { date, start_time, end_time }
- */
+// POST /api/infrastructure/:infraId/check-conflict (Admin only)
 exports.checkTimeConflict = async (req, res) => {
   try {
-    const { infraId } = req.params;
-    const { date, start_time, end_time } = req.body;
-
-    if (!date || !start_time || !end_time) {
+    const hasAdminAccess = req.user.user_type === "admin";
+    if (!hasAdminAccess) {
       return res
-        .status(400)
-        .json({ error: "Date, start_time, and end_time are required" });
+        .status(403)
+        .json({ error: "Only admins can check time conflicts" });
     }
 
-    // Check for conflicting attendance records
-    const [conflicts] = await db.query(
-      `SELECT 
-        a.id,
-        a.date,
-        a.check_in_time,
-        a.check_out_time,
-        u.name as user_name
-       FROM attendance a
-       JOIN users u ON a.user_id = u.id
-       WHERE a.infrastructure_id = ?
-       AND a.date = ?
-       AND a.check_in_time < ?
-       AND a.check_out_time > ?
-       ORDER BY a.check_in_time ASC`,
-      [infraId, date, end_time, start_time],
+    const { infraId } = req.params;
+    const { start_time, end_time, session_date } = req.body;
+
+    if (!start_time || !end_time || !session_date) {
+      return res
+        .status(400)
+        .json({ error: "start_time, end_time, and session_date are required" });
+    }
+
+    // Check if infrastructure exists
+    const [infra] = await db.query(
+      "SELECT * FROM infrastructure WHERE id = ? AND is_active = TRUE LIMIT 1",
+      [infraId],
     );
 
+    if (!infra.length) {
+      return res.status(404).json({ error: "Infrastructure not found" });
+    }
+
+    // Check for time conflicts with existing sessions on the same date
+    const [conflicts] = await db.query(
+      `SELECT cs.*, c.title 
+       FROM course_sessions cs
+       JOIN courses c ON cs.course_id = c.id
+       WHERE cs.session_date = ?
+         AND (
+           (cs.start_time < ? AND cs.end_time > ?)
+           OR (cs.start_time < ? AND cs.end_time > ?)
+           OR (cs.start_time >= ? AND cs.end_time <= ?)
+         )`,
+      [
+        session_date,
+        end_time,
+        start_time,
+        end_time,
+        start_time,
+        start_time,
+        end_time,
+      ],
+    );
+
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        message: "Time conflict detected",
+        conflicts: conflicts.map((c) => ({
+          session_id: c.id,
+          course: c.title,
+          start_time: c.start_time,
+          end_time: c.end_time,
+        })),
+      });
+    }
+
     res.json({
-      available: conflicts.length === 0,
-      conflictCount: conflicts.length,
-      conflicts: conflicts,
+      message: "No time conflicts detected",
+      infrastructure: { id: infraId, name: infra[0].name },
+      capacity: infra[0].capacity,
     });
   } catch (error) {
-    console.error("❌ Check conflict error:", error);
-    res.status(500).json({ error: "Failed to check conflict" });
+    console.error("❌ Check time conflict error:", error);
+    res.status(500).json({ error: "Failed to check time conflicts" });
   }
 };
+
+module.exports = exports;

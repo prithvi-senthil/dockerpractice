@@ -17,7 +17,7 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const { login } = useAuth();
+  const { login, testLogin } = useAuth();
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -31,6 +31,17 @@ const LoginScreen = ({ navigation }) => {
 
     if (!result.success) {
       Alert.alert("Login Failed", result.error);
+    }
+  };
+
+  const handleTestLogin = async (userType) => {
+    setLoading(true);
+    const testEmail = userType === 'faculty' ? 'test-faculty@college.edu' : 'test-student@college.edu';
+    const result = await testLogin(testEmail, userType);
+    setLoading(false);
+
+    if (!result.success) {
+      Alert.alert("Test Login Failed", result.error);
     }
   };
 
@@ -79,6 +90,34 @@ const LoginScreen = ({ navigation }) => {
             Don't have an account? <Text style={styles.linkBold}>Register</Text>
           </Text>
         </TouchableOpacity>
+
+        {/* Test Credentials */}
+        <View style={styles.credentialsBox}>
+          <Text style={styles.credentialsTitle}>📋 Test Credentials</Text>
+          <Text style={styles.credentialsText}>
+            Email: admin@college.edu{"\n"}
+            Password: password123
+          </Text>
+        </View>
+
+        {/* Test Login Buttons */}
+        <View style={styles.testLoginContainer}>
+          <TouchableOpacity
+            style={[styles.testButton, styles.testButtonStudent]}
+            onPress={() => handleTestLogin('student')}
+            disabled={loading}
+          >
+            <Text style={styles.testButtonText}>🧑‍🎓 Test as Student</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testButton, styles.testButtonFaculty]}
+            onPress={() => handleTestLogin('faculty')}
+            disabled={loading}
+          >
+            <Text style={styles.testButtonText}>👨‍🏫 Test as Faculty</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -160,6 +199,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#1565C0",
     lineHeight: 18,
+  },
+  testLoginContainer: {
+    marginTop: 20,
+    gap: 10,
+  },
+  testButton: {
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  testButtonStudent: {
+    borderColor: "#10B981",
+    backgroundColor: "#F0FDF4",
+  },
+  testButtonFaculty: {
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
+  testButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
   },
 });
 

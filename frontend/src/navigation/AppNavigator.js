@@ -18,11 +18,15 @@ import StudentListScreen from "../screens/admin/StudentListScreen";
 import ProfileScreen from "../screens/profile/ProfileScreen";
 import NotificationScreen from "../screens/notifications/NotificationScreen";
 import CourseAssignmentApprovalScreen from "../screens/faculty/CourseAssignmentApprovalScreen";
+import PendingCoursesScreen from "../screens/faculty/PendingCoursesScreen";
+import CreateCourseScreen from "../screens/CreateCourseScreen";
+import CourseAssignmentScreen from "../screens/CourseAssignmentScreen";
 import StudentEnrollmentScreen from "../screens/admin/StudentEnrollmentScreen";
 import InfrastructureManagementScreen from "../screens/InfrastructureManagementScreen";
-import SettingsScreen from "../screens/SettingsScreen";
+import SettingsScreen from "../screens/admin/SettingsScreen";
 import AuditLogsScreen from "../screens/AuditLogsScreen";
 import UserManagementScreen from "../screens/UserManagementScreen";
+import CourseDetailsScreen from "../screens/CourseDetailsScreen";
 import NotificationIcon from "../components/NotificationIcon";
 
 const Stack = createNativeStackNavigator();
@@ -124,6 +128,8 @@ const FacultyTabs = () => (
           iconName = focused ? "home" : "home-outline";
         else if (route.name === "CalendarTab")
           iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "CoursesTab")
+          iconName = focused ? "book" : "book-outline";
         else if (route.name === "LeavesTab")
           iconName = focused ? "document-text" : "document-text-outline";
         else iconName = focused ? "person" : "person-outline";
@@ -136,9 +142,11 @@ const FacultyTabs = () => (
           ? "Home"
           : route.name === "CalendarTab"
             ? "Calendar"
-            : route.name === "LeavesTab"
-              ? "Leave Requests"
-              : "Profile",
+            : route.name === "CoursesTab"
+              ? "Courses"
+              : route.name === "LeavesTab"
+                ? "Leave Requests"
+                : "Profile",
       tabBarLabelStyle: {
         fontSize: 11,
         fontWeight: "500",
@@ -169,6 +177,11 @@ const FacultyTabs = () => (
       name="CalendarTab"
       component={CalendarScreen}
       options={{ title: "Calendar" }}
+    />
+    <Tab.Screen
+      name="CoursesTab"
+      component={PendingCoursesScreen}
+      options={{ title: "My Courses" }}
     />
     <Tab.Screen
       name="LeavesTab"
@@ -295,6 +308,17 @@ const AppStack = () => {
       />
 
       <Stack.Screen
+        name="CourseDetails"
+        component={CourseDetailsScreen}
+        options={{
+          title: "Course Details",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
         name="Notifications"
         component={NotificationScreen}
         options={{
@@ -367,6 +391,28 @@ const AppStack = () => {
         component={UserManagementScreen}
         options={{
           title: "User Management",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="CreateCourse"
+        component={CreateCourseScreen}
+        options={{
+          title: "Create Course",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="CourseAssignment"
+        component={CourseAssignmentScreen}
+        options={{
+          title: "Assign Course to Faculty",
           headerStyle: { backgroundColor: "#fff" },
           headerTintColor: "#7d53f6",
           headerTitleStyle: { fontWeight: "700" },

@@ -150,7 +150,7 @@ const InfrastructureManagementScreen = () => {
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardTitle}>
-          <Ionicons name="business-outline" size={20} color="#7d53f6" />
+          <Ionicons name="briefcase" size={20} color="#7d53f6" />
           <View style={styles.titleText}>
             <Text style={styles.infraName}>{item.name}</Text>
             <Text style={styles.infraSubtype}>{item.subtype}</Text>
@@ -189,14 +189,14 @@ const InfrastructureManagementScreen = () => {
           style={[styles.actionBtn, styles.editBtn]}
           onPress={() => handleEdit(item)}
         >
-          <Ionicons name="pencil-outline" size={16} color="#7d53f6" />
+          <Ionicons name="create" size={16} color="#7d53f6" />
           <Text style={styles.editBtnText}>Edit</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionBtn, styles.deleteBtn]}
           onPress={() => handleDelete(item.id)}
         >
-          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+          <Ionicons name="trash" size={16} color="#EF4444" />
           <Text style={styles.deleteBtnText}>Delete</Text>
         </TouchableOpacity>
       </View>
@@ -209,7 +209,7 @@ const InfrastructureManagementScreen = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Infrastructure Management</Text>
         <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
-          <Ionicons name="add-outline" size={20} color="#fff" />
+          <Ionicons name="add" size={20} color="#fff" />
           <Text style={styles.addButtonText}>Add</Text>
         </TouchableOpacity>
       </View>
@@ -221,7 +221,7 @@ const InfrastructureManagementScreen = () => {
         </View>
       ) : infrastructureList.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="business-outline" size={48} color="#ccc" />
+          <Ionicons name="briefcase" size={48} color="#ccc" />
           <Text style={styles.emptyText}>No infrastructure</Text>
           <Text style={styles.emptySubText}>
             Tap the add button to create infrastructure
@@ -258,7 +258,7 @@ const InfrastructureManagementScreen = () => {
                 {editingId ? "Edit Infrastructure" : "Add Infrastructure"}
               </Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close-outline" size={24} color="#333" />
+                <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
 

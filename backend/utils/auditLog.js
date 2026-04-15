@@ -22,18 +22,13 @@ async function auditLog(
   description = "",
 ) {
   try {
-    const actor_name = await getUserName(userId);
-    const actor_email = await getUserEmail(userId);
-
     await db.query(
       `INSERT INTO audit_logs 
-       (actor_id, actor_name, actor_email, action, entity_type, entity_id, entity_name, 
+       (actor_id, action, entity_type, entity_id, entity_name, 
         old_value, new_value, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
-        actor_name,
-        actor_email,
         action,
         entity_type,
         entity_id,
@@ -44,36 +39,9 @@ async function auditLog(
       ],
     );
 
-    console.log(
-      `✅ Audit log: ${actor_name} - ${action} - ${entity_type}#${entity_id}`,
-    );
+    console.log(`✅ Audit log: ${action} - ${entity_type}#${entity_id}`);
   } catch (error) {
     console.error("❌ Audit log error:", error);
   }
 }
-
-async function getUserName(userId) {
-  try {
-    const [rows] = await db.query(
-      "SELECT name FROM users WHERE id = ? LIMIT 1",
-      [userId],
-    );
-    return rows[0]?.name || "System";
-  } catch {
-    return "System";
-  }
-}
-
-async function getUserEmail(userId) {
-  try {
-    const [rows] = await db.query(
-      "SELECT email FROM users WHERE id = ? LIMIT 1",
-      [userId],
-    );
-    return rows[0]?.email || "system@app.internal";
-  } catch {
-    return "system@app.internal";
-  }
-}
-
 module.exports = auditLog;

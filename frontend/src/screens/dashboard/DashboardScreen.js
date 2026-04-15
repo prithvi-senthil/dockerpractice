@@ -61,58 +61,85 @@ const DashboardScreen = ({ navigation }) => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      let coursesList = [];
-      let sessionsList = [];
-      let present = 0;
-      let absent = 0;
+      let activitiesList = [];
+      let todayActivities = [];
+      let attendanceRecords = [];
       let pending = 0;
       let approved = 0;
 
-      // Fetch courses
+      // Fetch all activities (courses/sessions)
       try {
-        const coursesRes = await api.get("/activities/courses");
-        coursesList = coursesRes.data.courses || [];
-        setCourses(coursesList);
-        console.log("✅ Courses fetched:", coursesList.length);
-      } catch (err) {
-        console.warn("⚠️ Could not fetch courses:", err.message);
-        setCourses([]);
-      }
+        const activitiesRes = await api.get("/activities");
+        // Handle both array and object response formats
+        activitiesList = Array.isArray(activitiesRes.data)
+          ? activitiesRes.data
+          : activitiesRes.data?.activities || [];
 
-      // Fetch today's sessions
-      try {
+        if (!Array.isArray(activitiesList)) {
+          console.warn(
+            "⚠️ Activities response format invalid:",
+            typeof activitiesList,
+          );
+          activitiesList = [];
+        }
+
+        setCourses(activitiesList);
+        console.log("✅ Activities fetched:", activitiesList.length);
+
+        // Filter today's activities
         const today = new Date().toISOString().split("T")[0];
-        const sessionsRes = await api.get("/activities/sessions", {
-          params: { date: today },
+        todayActivities = activitiesList.filter((activity) => {
+          const activityDate = activity.start_time?.split("T")[0];
+          return activityDate === today;
         });
-        sessionsList = sessionsRes.data.sessions || [];
-        setSessions(sessionsList);
-        console.log("✅ Sessions fetched:", sessionsList.length);
+        setSessions(todayActivities);
+        console.log("✅ Today's activities:", todayActivities.length);
       } catch (err) {
-        console.warn("⚠️ Could not fetch sessions:", err.message);
+        console.warn("⚠️ Could not fetch activities:", err.message);
+        setCourses([]);
         setSessions([]);
       }
 
-      // Fetch attendance history
-      try {
-        const attendanceRes = await api.get("/activities/attendance");
-        const attendanceData = attendanceRes.data.attendance || [];
-        present = attendanceData.filter((a) => a.status === "present").length;
-        absent = attendanceData.filter((a) => a.status === "absent").length;
-        console.log(
-          "✅ Attendance fetched. Present:",
-          present,
-          "Absent:",
-          absent,
-        );
-      } catch (err) {
-        console.warn("⚠️ Could not fetch attendance:", err.message);
+      // Fetch attendance history (skip for admin users)
+      if (user?.user_type !== "admin") {
+        try {
+          const attendanceRes = await api.get("/attendance/my-attendance");
+          attendanceRecords = attendanceRes.data || [];
+          const present = attendanceRecords.filter(
+            (a) => a.status === "present",
+          ).length;
+          const absent = attendanceRecords.filter(
+            (a) => a.status === "absent",
+          ).length;
+          console.log(
+            "✅ Attendance fetched. Present:",
+            present,
+            "Absent:",
+            absent,
+          );
+
+          const total = present + absent || 1;
+          const rate = Math.round((present / total) * 100);
+          setAttendanceRate(rate);
+
+          setStats((prev) => ({
+            ...prev,
+            presentDays: present,
+            absentDays: absent,
+          }));
+        } catch (err) {
+          console.warn("⚠️ Could not fetch attendance:", err.message);
+        }
+      } else {
+        console.log("ℹ️  Skipping attendance fetch for admin user");
       }
 
       // Fetch leaves
       try {
         const leavesRes = await api.get("/leaves");
-        const leavesList = leavesRes.data.leaves || [];
+        const leavesList = Array.isArray(leavesRes.data)
+          ? leavesRes.data
+          : leavesRes.data.leaves || [];
         pending = leavesList.filter((l) => l.status === "pending").length;
         approved = leavesList.filter((l) => l.status === "approved").length;
         console.log(
@@ -121,23 +148,21 @@ const DashboardScreen = ({ navigation }) => {
           "Approved:",
           approved,
         );
+
+        setStats((prev) => ({
+          ...prev,
+          pendingLeaves: pending,
+          approvedLeaves: approved,
+        }));
       } catch (err) {
         console.warn("⚠️ Could not fetch leaves:", err.message);
       }
 
-      const total = present + absent || 1;
-      const rate = Math.round((present / total) * 100);
-
-      setStats({
-        totalCourses: coursesList.length,
-        upcomingSessions: sessionsList.length,
-        presentDays: present,
-        absentDays: absent,
-        pendingLeaves: pending,
-        approvedLeaves: approved,
-      });
-
-      setAttendanceRate(rate);
+      setStats((prev) => ({
+        ...prev,
+        totalCourses: activitiesList.length,
+        upcomingSessions: todayActivities.length,
+      }));
     } catch (error) {
       console.error("❌ Dashboard fetch error:", error);
     } finally {
@@ -489,7 +514,6 @@ const DashboardScreen = ({ navigation }) => {
               <Text style={styles.adminLabel}>Infrastructure</Text>
               <Text style={styles.adminDesc}>Manage facilities</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.adminCard}
               onPress={() => handleAdminNavigation("SettingsScreen")}
@@ -500,7 +524,6 @@ const DashboardScreen = ({ navigation }) => {
               <Text style={styles.adminLabel}>Settings</Text>
               <Text style={styles.adminDesc}>System config</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.adminCard}
               onPress={() => handleAdminNavigation("AuditLogsScreen")}
@@ -515,7 +538,6 @@ const DashboardScreen = ({ navigation }) => {
               <Text style={styles.adminLabel}>Audit Logs</Text>
               <Text style={styles.adminDesc}>View activity</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.adminCard}
               onPress={() => handleAdminNavigation("UserManagementScreen")}
@@ -526,6 +548,26 @@ const DashboardScreen = ({ navigation }) => {
               <Text style={styles.adminLabel}>Users</Text>
               <Text style={styles.adminDesc}>Manage users</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.adminCard}
+              onPress={() => handleAdminNavigation("CreateCourse")}
+            >
+              <View style={[styles.adminIcon, { backgroundColor: "#E3F2FD" }]}>
+                <Ionicons name="book-outline" size={24} color="#1976D2" />
+              </View>
+              <Text style={styles.adminLabel}>Create Course</Text>
+              <Text style={styles.adminDesc}>New courses</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.adminCard}
+              onPress={() => handleAdminNavigation("CourseAssignment")}
+            >
+              <View style={[styles.adminIcon, { backgroundColor: "#F3E5F5" }]}>
+                <Ionicons name="link-outline" size={24} color="#7d53f6" />
+              </View>
+              <Text style={styles.adminLabel}>Assign Course</Text>
+              <Text style={styles.adminDesc}>To faculty</Text>
+            </TouchableOpacity>{" "}
           </View>
         </View>
       )}

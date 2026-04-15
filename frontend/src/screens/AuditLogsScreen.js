@@ -1,605 +1,930 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
-  Alert,
-  ScrollView,
   ActivityIndicator,
-  RefreshControl,
-  FlatList,
-  Modal,
   TextInput,
-  Picker,
+  RefreshControl,
+  Modal,
+  ScrollView,
+  Dimensions,
+  Platform,
 } from "react-native";
 import Ionicons from "react-native-vector-icons/Ionicons";
-import API from "../services/api";
+import { auditLogAPI } from "../services/api";
 
-const AuditLogsScreen = () => {
-  const [logs, setLogs] = useState([]);
-  const [summary, setSummary] = useState(null);
-  const [entityTypes, setEntityTypes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [pagination, setPagination] = useState({
-    limit: 20,
-    offset: 0,
-    total: 0,
+const { width } = Dimensions.get("window");
+
+// ── constants ──────────────────────────────────────────────────────────────
+
+const ACTION_META = {
+  CREATE: {
+    color: "#1B8F4C",
+    bg: "#E6F7EE",
+    dot: "#1B8F4C",
+    border: "#1B8F4C",
+  },
+  UPDATE: {
+    color: "#1558B0",
+    bg: "#E8F0FE",
+    dot: "#1558B0",
+    border: "#1558B0",
+  },
+  DELETE: {
+    color: "#C62828",
+    bg: "#FFF0F0",
+    dot: "#C62828",
+    border: "#C62828",
+  },
+};
+
+const ENTITY_META = {
+  INFRASTRUCTURE: {
+    icon: "hardware-chip-outline",
+    color: "#00897B",
+    bg: "#E0F2F1",
+    label: "Infrastructure",
+  },
+  CATEGORY: {
+    icon: "albums-outline",
+    color: "#7B1FA2",
+    bg: "#F3E5F5",
+    label: "Category",
+  },
+  SUBCATEGORY: {
+    icon: "layers-outline",
+    color: "#6A1B9A",
+    bg: "#EDE7F6",
+    label: "Subcategory",
+  },
+  USER_GROUP: {
+    icon: "people-circle-outline",
+    color: "#1565C0",
+    bg: "#E3F2FD",
+    label: "User Group",
+  },
+  SETTING: {
+    icon: "settings-outline",
+    color: "#F57F17",
+    bg: "#FFF8E1",
+    label: "Setting",
+  },
+  PRIORITY: {
+    icon: "star-outline",
+    color: "#C62828",
+    bg: "#FFEBEE",
+    label: "Priority",
+  },
+};
+
+const DEFAULT_ENTITY = {
+  icon: "document-outline",
+  color: "#546E7A",
+  bg: "#ECEFF1",
+  label: "Other",
+};
+
+const ENTITY_TYPES = [
+  "ALL",
+  "INFRASTRUCTURE",
+  "CATEGORY",
+  "SUBCATEGORY",
+  "USER_GROUP",
+  "SETTING",
+  "PRIORITY",
+];
+const ACTIONS = ["ALL", "CREATE", "UPDATE", "DELETE"];
+
+const ACTION_LABEL = {
+  ALL: "All Actions",
+  CREATE: "Created",
+  UPDATE: "Updated",
+  DELETE: "Deleted",
+};
+const ENTITY_LABEL = { ALL: "All Types" };
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  return d.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
   });
+};
 
-  // Filter states
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [selectedEntityType, setSelectedEntityType] = useState("");
-  const [selectedAction, setSelectedAction] = useState("");
+const formatDateShort = (dateStr) => {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+  return d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 
-  const ACTIONS = ["CREATE", "UPDATE", "DELETE", "VIEW"];
+// ── component ──────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
+const AuditLogsScreen = ({ navigation }) => {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchInitialData = async () => {
-    try {
-      setLoading(true);
-      const [logsRes, summaryRes, typesRes] = await Promise.all([
-        API.get("/audit-logs", {
-          params: { limit: 20, offset: 0 },
-        }),
-        API.get("/audit-logs/summary"),
-        API.get("/audit-logs/entity-types"),
-      ]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-      setLogs(logsRes.data.logs || []);
-      setPagination({
-        limit: logsRes.data.limit,
-        offset: logsRes.data.offset,
-        total: logsRes.data.total,
-      });
-      setSummary(summaryRes.data);
-      setEntityTypes(typesRes.data.entity_types || []);
-    } catch (error) {
-      console.error("Fetch audit logs error:", error);
-      Alert.alert("Error", "Failed to fetch audit logs");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [search, setSearch] = useState("");
+  const [entityFilter, setEntityFilter] = useState("ALL");
+  const [actionFilter, setActionFilter] = useState("ALL");
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchInitialData();
-    setRefreshing(false);
-  };
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [detailVisible, setDetailVisible] = useState(false);
 
-  const handleFilterApply = async () => {
-    try {
-      setLoading(true);
-      const params = { limit: 20, offset: 0 };
-      if (selectedEntityType) params.entity_type = selectedEntityType;
-      if (selectedAction) params.action = selectedAction;
+  // ── fetch ────────────────────────────────────────────────────────────────
 
-      const response = await API.get("/audit-logs", { params });
-      setLogs(response.data.logs || []);
-      setPagination({
-        limit: response.data.limit,
-        offset: response.data.offset,
-        total: response.data.total,
-      });
-      setFilterModalVisible(false);
-    } catch (error) {
-      console.error("Filter error:", error);
-      Alert.alert("Error", "Failed to apply filters");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchLogs = useCallback(
+    async (opts = {}) => {
+      const { pageNum = 1, isRefresh = false, append = false } = opts;
 
-  const handleClearFilters = async () => {
-    setSelectedEntityType("");
-    setSelectedAction("");
-    try {
-      setLoading(true);
-      const response = await API.get("/audit-logs", {
-        params: { limit: 20, offset: 0 },
-      });
-      setLogs(response.data.logs || []);
-      setPagination({
-        limit: response.data.limit,
-        offset: response.data.offset,
-        total: response.data.total,
-      });
-    } catch (error) {
-      console.error("Clear filter error:", error);
-      Alert.alert("Error", "Failed to clear filters");
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (pageNum === 1 && !append)
+        isRefresh ? setRefreshing(true) : setLoading(true);
+      else setLoadingMore(true);
 
-  const loadMore = async () => {
-    if (pagination.offset + pagination.limit >= pagination.total) return;
+      try {
+        const params = {
+          page: pageNum,
+          limit: 30,
+          ...(entityFilter !== "ALL" ? { entity_type: entityFilter } : {}),
+          ...(actionFilter !== "ALL" ? { action: actionFilter } : {}),
+          ...(search.trim() ? { search: search.trim() } : {}),
+        };
 
-    try {
-      const params = {
-        limit: pagination.limit,
-        offset: pagination.offset + pagination.limit,
-      };
-      if (selectedEntityType) params.entity_type = selectedEntityType;
-      if (selectedAction) params.action = selectedAction;
+        const res = await auditLogAPI.getLogs(params);
+        const { logs: newLogs, pagination } = res.data;
 
-      const response = await API.get("/audit-logs", { params });
-      setLogs([...logs, ...(response.data.logs || [])]);
-      setPagination({
-        limit: response.data.limit,
-        offset: response.data.offset,
-        total: response.data.total,
-      });
-    } catch (error) {
-      console.error("Load more error:", error);
-    }
-  };
-
-  const getActionColor = (action) => {
-    switch (action) {
-      case "CREATE":
-        return "#10B981";
-      case "UPDATE":
-        return "#F59E0B";
-      case "DELETE":
-        return "#EF4444";
-      case "VIEW":
-        return "#6366F1";
-      default:
-        return "#999";
-    }
-  };
-
-  const getActionIcon = (action) => {
-    switch (action) {
-      case "CREATE":
-        return "add-circle-outline";
-      case "UPDATE":
-        return "create-outline";
-      case "DELETE":
-        return "trash-outline";
-      case "VIEW":
-        return "eye-outline";
-      default:
-        return "information-circle-outline";
-    }
-  };
-
-  const renderLogItem = ({ item }) => (
-    <View style={styles.logCard}>
-      <View style={styles.logHeader}>
-        <View
-          style={[
-            styles.actionIcon,
-            { backgroundColor: getActionColor(item.action) + "20" },
-          ]}
-        >
-          <Ionicons
-            name={getActionIcon(item.action)}
-            size={16}
-            color={getActionColor(item.action)}
-          />
-        </View>
-        <View style={styles.logInfo}>
-          <Text style={styles.logAction}>{item.action}</Text>
-          <Text style={styles.logEntity}>{item.entity_type}</Text>
-        </View>
-        <Text style={styles.logTime}>
-          {new Date(item.created_at).toLocaleDateString()}
-          {"\n"}
-          {new Date(item.created_at).toLocaleTimeString()}
-        </Text>
-      </View>
-
-      <View style={styles.logDetails}>
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>By:</Text>
-          <Text style={styles.detailValue}>{item.actor_name || "System"}</Text>
-        </View>
-        {item.entity_name && (
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Entity:</Text>
-            <Text style={styles.detailValue}>{item.entity_name}</Text>
-          </View>
-        )}
-        {item.description && (
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Description:</Text>
-            <Text style={styles.detailValue}>{item.description}</Text>
-          </View>
-        )}
-      </View>
-    </View>
+        setLogs((prev) => (append ? [...prev, ...newLogs] : newLogs));
+        setPage(pagination.page);
+        setTotalPages(pagination.total_pages);
+        setTotal(pagination.total);
+      } catch (err) {
+        console.error("AuditLogs fetch error:", err);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }
+    },
+    [entityFilter, actionFilter, search],
   );
 
-  if (loading && !refreshing && logs.length === 0) {
+  useEffect(() => {
+    fetchLogs({ pageNum: 1 });
+  }, [fetchLogs]);
+
+  const handleRefresh = () => fetchLogs({ pageNum: 1, isRefresh: true });
+
+  const handleLoadMore = () => {
+    if (!loadingMore && page < totalPages) {
+      fetchLogs({ pageNum: page + 1, append: true });
+    }
+  };
+
+  const openDetail = (log) => {
+    setSelectedLog(log);
+    setDetailVisible(true);
+  };
+
+  // ── render helpers ───────────────────────────────────────────────────────
+
+  const renderItem = ({ item, index }) => {
+    const am = ACTION_META[item.action] || {
+      color: "#546E7A",
+      bg: "#ECEFF1",
+      border: "#546E7A",
+    };
+    const em = ENTITY_META[item.entity_type] || DEFAULT_ENTITY;
+
     return (
-      <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#7d53f6" />
+      <TouchableOpacity
+        style={[styles.logCard, { borderLeftColor: am.border }]}
+        onPress={() => openDetail(item)}
+        activeOpacity={0.7}
+      >
+        {/* entity icon bubble */}
+        <View style={[styles.entityBubble, { backgroundColor: em.bg }]}>
+          <Ionicons name={em.icon} size={18} color={em.color} />
         </View>
-      </View>
-    );
-  }
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Audit Logs</Text>
-          <Text style={styles.headerSubtitle}>
-            {pagination.total} total records
+        <View style={styles.logBody}>
+          {/* top row: action pill + entity label + name */}
+          <View style={styles.logTopRow}>
+            <View style={[styles.actionPill, { backgroundColor: am.bg }]}>
+              <View style={[styles.actionDot, { backgroundColor: am.dot }]} />
+              <Text style={[styles.actionPillText, { color: am.color }]}>
+                {ACTION_LABEL[item.action] || item.action}
+              </Text>
+            </View>
+            <Text style={[styles.entityLabel, { color: em.color }]}>
+              {em.label}
+            </Text>
+          </View>
+
+          {/* entity name / description */}
+          {item.entity_name ? (
+            <Text style={styles.entityName} numberOfLines={1}>
+              {item.entity_name}
+            </Text>
+          ) : null}
+          <Text style={styles.description} numberOfLines={2}>
+            {item.description || `${item.action} on ${item.entity_type}`}
           </Text>
+
+          {/* meta row */}
+          <View style={styles.metaRow}>
+            <View style={styles.metaItem}>
+              <Ionicons name="person-circle" size={13} color="#aaa" />
+              <Text style={styles.metaText}>{item.actor_name || "System"}</Text>
+            </View>
+            <View style={styles.metaDot} />
+            <View style={styles.metaItem}>
+              <Ionicons name="time-outline" size={13} color="#aaa" />
+              <Text style={styles.metaText}>
+                {formatDateShort(item.created_at)}
+              </Text>
+            </View>
+          </View>
         </View>
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setFilterModalVisible(true)}
-        >
-          <Ionicons name="filter-outline" size={20} color="#7d53f6" />
-        </TouchableOpacity>
+
+        <Ionicons name="chevron-forward" size={15} color="#D0D0D0" />
+      </TouchableOpacity>
+    );
+  };
+
+  const renderDetail = () => {
+    if (!selectedLog) return null;
+    const log = selectedLog;
+    const am = ACTION_META[log.action] || {
+      color: "#546E7A",
+      bg: "#ECEFF1",
+      border: "#546E7A",
+    };
+    const em = ENTITY_META[log.entity_type] || DEFAULT_ENTITY;
+
+    const renderJSON = (val) => {
+      if (!val) return <Text style={styles.jsonNull}>—</Text>;
+      try {
+        const obj = typeof val === "string" ? JSON.parse(val) : val;
+        return (
+          <View style={styles.jsonBlock}>
+            {Object.entries(obj).map(([k, v]) => (
+              <View key={k} style={styles.jsonRow}>
+                <Text style={styles.jsonKey}>{k}</Text>
+                <Text style={styles.jsonVal}>{String(v ?? "—")}</Text>
+              </View>
+            ))}
+          </View>
+        );
+      } catch {
+        return <Text style={styles.jsonVal}>{String(val)}</Text>;
+      }
+    };
+
+    return (
+      <Modal
+        visible={detailVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDetailVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            {/* drag handle */}
+            <View style={styles.dragHandle} />
+
+            {/* coloured header strip */}
+            <View
+              style={[
+                styles.modalHeaderStrip,
+                { backgroundColor: am.bg, borderBottomColor: am.border + "33" },
+              ]}
+            >
+              <View style={[styles.entityBubbleLg, { backgroundColor: em.bg }]}>
+                <Ionicons name={em.icon} size={22} color={em.color} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 2,
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.actionPill,
+                      { backgroundColor: am.color + "22" },
+                    ]}
+                  >
+                    <View
+                      style={[styles.actionDot, { backgroundColor: am.color }]}
+                    />
+                    <Text style={[styles.actionPillText, { color: am.color }]}>
+                      {ACTION_LABEL[log.action] || log.action}
+                    </Text>
+                  </View>
+                  <Text style={[styles.entityLabel, { color: em.color }]}>
+                    {em.label}
+                  </Text>
+                </View>
+                <Text style={styles.modalEntityName} numberOfLines={1}>
+                  {log.entity_name || `ID ${log.entity_id || "—"}`}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setDetailVisible(false)}
+                style={styles.closeBtn}
+              >
+                <View style={styles.closeBtnCircle}>
+                  <Ionicons name="close" size={16} color="#555" />
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.modalBody}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* info cards */}
+              <View style={styles.infoGrid}>
+                <InfoCard
+                  icon="person-outline"
+                  label="Changed by"
+                  value={log.actor_name || "System"}
+                  sub={log.actor_email}
+                />
+                <InfoCard
+                  icon="time-outline"
+                  label="When"
+                  value={formatDate(log.created_at)}
+                />
+              </View>
+
+              {log.description ? (
+                <View style={styles.summaryCard}>
+                  <Text style={styles.summaryLabel}>Summary</Text>
+                  <Text style={styles.summaryText}>{log.description}</Text>
+                </View>
+              ) : null}
+
+              {/* before / after */}
+              {(log.old_value || log.new_value) && (
+                <View style={styles.diffSection}>
+                  {log.old_value && (
+                    <View style={[styles.diffBlock, styles.diffBefore]}>
+                      <View style={styles.diffHeader}>
+                        <Ionicons
+                          name="remove-circle"
+                          size={14}
+                          color="#C62828"
+                        />
+                        <Text style={[styles.diffTitle, { color: "#C62828" }]}>
+                          Before
+                        </Text>
+                      </View>
+                      {renderJSON(log.old_value)}
+                    </View>
+                  )}
+                  {log.new_value && (
+                    <View style={[styles.diffBlock, styles.diffAfter]}>
+                      <View style={styles.diffHeader}>
+                        <Ionicons name="add-circle" size={14} color="#1B8F4C" />
+                        <Text style={[styles.diffTitle, { color: "#1B8F4C" }]}>
+                          After
+                        </Text>
+                      </View>
+                      {renderJSON(log.new_value)}
+                    </View>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  const renderListHeader = () => (
+    <View style={styles.listHeader}>
+      {/* search */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search" size={16} color="#aaa" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search by name, description…"
+          placeholderTextColor="#bbb"
+          value={search}
+          onChangeText={setSearch}
+          returnKeyType="search"
+          onSubmitEditing={() => fetchLogs({ pageNum: 1 })}
+          clearButtonMode="while-editing"
+        />
+        {search.length > 0 && (
+          <TouchableOpacity onPress={() => setSearch("")}>
+            <Ionicons name="close-circle" size={16} color="#bbb" />
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Summary Section */}
-      {summary && (
+      {/* filters */}
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>ENTITY TYPE</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.summaryContainer}
+          style={styles.chipScroll}
         >
-          {Object.entries(summary.by_action || {}).map(([action, count]) => (
-            <View key={action} style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>{action}</Text>
-              <Text
-                style={[styles.summaryCount, { color: getActionColor(action) }]}
+          {ENTITY_TYPES.map((opt) => {
+            const active = entityFilter === opt;
+            const em2 = ENTITY_META[opt];
+            return (
+              <TouchableOpacity
+                key={opt}
+                style={[
+                  styles.chip,
+                  active && {
+                    backgroundColor: em2?.color || "#7d53f6",
+                    borderColor: em2?.color || "#7d53f6",
+                  },
+                ]}
+                onPress={() => setEntityFilter(opt)}
               >
-                {count}
-              </Text>
-            </View>
-          ))}
+                {em2 && (
+                  <Ionicons
+                    name={em2.icon}
+                    size={12}
+                    color={active ? "#fff" : em2.color}
+                    style={{ marginRight: 4 }}
+                  />
+                )}
+                <Text
+                  style={[styles.chipText, active && styles.chipTextActive]}
+                >
+                  {ENTITY_LABEL[opt] || opt.replace("_", " ")}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
-      )}
+      </View>
 
-      {/* Logs List */}
-      {logs.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="document-text-outline" size={48} color="#ccc" />
-          <Text style={styles.emptyText}>No audit logs found</Text>
-          <Text style={styles.emptySubText}>
-            Administrative actions will be logged here
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>ACTION</Text>
+        <View style={styles.actionChipRow}>
+          {ACTIONS.map((opt) => {
+            const active = actionFilter === opt;
+            const am2 = ACTION_META[opt];
+            return (
+              <TouchableOpacity
+                key={opt}
+                style={[
+                  styles.actionChip,
+                  active && {
+                    backgroundColor: am2?.color || "#7d53f6",
+                    borderColor: am2?.color || "#7d53f6",
+                  },
+                ]}
+                onPress={() => setActionFilter(opt)}
+              >
+                {am2 && (
+                  <View
+                    style={[
+                      styles.actionDot,
+                      {
+                        backgroundColor: active ? "#fff" : am2.dot,
+                        marginRight: 5,
+                      },
+                    ]}
+                  />
+                )}
+                <Text
+                  style={[styles.chipText, active && styles.chipTextActive]}
+                >
+                  {ACTION_LABEL[opt] || opt}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {!loading && (
+        <View style={styles.countRow}>
+          <Text style={styles.countText}>
+            {total} log{total !== 1 ? "s" : ""}
           </Text>
+        </View>
+      )}
+    </View>
+  );
+
+  // ── main render ──────────────────────────────────────────────────────────
+
+  return (
+    <View style={styles.container}>
+      {loading ? (
+        <View style={styles.centered}>
+          {renderListHeader()}
+          <ActivityIndicator
+            size="large"
+            color="#7d53f6"
+            style={{ marginTop: 40 }}
+          />
+          <Text style={styles.loadingText}>Loading audit logs…</Text>
         </View>
       ) : (
         <FlatList
           data={logs}
-          renderItem={renderLogItem}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          ListHeaderComponent={renderListHeader}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={onRefresh}
+              onRefresh={handleRefresh}
+              colors={["#7d53f6"]}
               tintColor="#7d53f6"
             />
           }
-          contentContainerStyle={styles.logsList}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.4}
           ListFooterComponent={
-            pagination.offset + pagination.limit < pagination.total ? (
-              <View style={styles.loadingMore}>
-                <ActivityIndicator size="small" color="#7d53f6" />
-              </View>
-            ) : null
+            loadingMore ? (
+              <ActivityIndicator style={{ padding: 20 }} color="#7d53f6" />
+            ) : (
+              <View style={{ height: 30 }} />
+            )
           }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons name="document-text" size={40} color="#C5C5C5" />
+              </View>
+              <Text style={styles.emptyTitle}>No logs found</Text>
+              <Text style={styles.emptySubtitle}>
+                Try adjusting your filters or search
+              </Text>
+            </View>
+          }
+          contentContainerStyle={{ flexGrow: 1 }}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
-      {/* Filter Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={filterModalVisible}
-        onRequestClose={() => setFilterModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filter Logs</Text>
-              <TouchableOpacity onPress={() => setFilterModalVisible(false)}>
-                <Ionicons name="close-outline" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.filterForm}>
-              <Text style={styles.label}>Entity Type</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={selectedEntityType}
-                  onValueChange={setSelectedEntityType}
-                  style={styles.picker}
-                >
-                  <Picker.Item label="All Entity Types" value="" />
-                  {entityTypes.map((type) => (
-                    <Picker.Item key={type} label={type} value={type} />
-                  ))}
-                </Picker>
-              </View>
-
-              <Text style={styles.label}>Action</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={selectedAction}
-                  onValueChange={setSelectedAction}
-                  style={styles.picker}
-                >
-                  <Picker.Item label="All Actions" value="" />
-                  {ACTIONS.map((action) => (
-                    <Picker.Item key={action} label={action} value={action} />
-                  ))}
-                </Picker>
-              </View>
-            </ScrollView>
-
-            <View style={styles.filterActions}>
-              <TouchableOpacity
-                style={[styles.filterBtn, styles.clearBtn]}
-                onPress={handleClearFilters}
-              >
-                <Text style={styles.clearBtnText}>Clear All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.filterBtn, styles.applyBtn]}
-                onPress={handleFilterApply}
-              >
-                <Text style={styles.applyBtnText}>Apply Filters</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {renderDetail()}
     </View>
   );
 };
 
+// ── helper sub-components ──────────────────────────────────────────────────
+
+const InfoCard = ({ icon, label, value, sub }) => (
+  <View style={styles.infoCard}>
+    <View style={styles.infoCardIcon}>
+      <Ionicons name={icon} size={15} color="#7d53f6" />
+    </View>
+    <Text style={styles.infoCardLabel}>{label}</Text>
+    <Text style={styles.infoCardValue} numberOfLines={1}>
+      {value}
+    </Text>
+    {sub ? (
+      <Text style={styles.infoCardSub} numberOfLines={1}>
+        {sub}
+      </Text>
+    ) : null}
+  </View>
+);
+
+// ── styles ─────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f5f5",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 4,
-  },
-  filterButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: "#f3e8ff",
-  },
-  summaryContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    maxHeight: 100,
-  },
-  summaryCard: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginRight: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 80,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  summaryLabel: {
-    fontSize: 11,
-    color: "#666",
+  container: { flex: 1, backgroundColor: "#F2F3F7" },
+  centered: { flex: 1, backgroundColor: "#F2F3F7" },
+  loadingText: {
+    marginTop: 10,
+    color: "#aaa",
+    fontSize: 14,
     fontWeight: "500",
   },
-  summaryCount: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingBottom: 50,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 12,
-  },
-  emptySubText: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 5,
-    textAlign: "center",
-  },
-  logsList: {
-    paddingVertical: 10,
-  },
-  logCard: {
-    backgroundColor: "#fff",
-    marginHorizontal: 15,
-    marginVertical: 8,
-    borderRadius: 10,
-    padding: 15,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  logHeader: {
+
+  // ── list header ──
+  listHeader: { paddingBottom: 6 },
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    backgroundColor: "#fff",
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 10,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: Platform?.OS === "ios" ? 11 : 8,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
-  actionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#222",
+    fontWeight: "500",
+  },
+
+  filterSection: { marginBottom: 10 },
+  filterLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#aaa",
+    letterSpacing: 1,
+    marginLeft: 16,
+    marginBottom: 7,
+  },
+  chipScroll: { paddingLeft: 14, flexGrow: 0 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    marginRight: 8,
+    borderWidth: 1.5,
+    borderColor: "#E5E5E5",
+  },
+  chipText: { fontSize: 12, fontWeight: "600", color: "#666" },
+  chipTextActive: { color: "#fff", fontWeight: "700" },
+  actionChipRow: { flexDirection: "row", paddingLeft: 14, gap: 8 },
+  actionChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: "#E5E5E5",
+  },
+
+  countRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    marginTop: 2,
+  },
+  countText: { fontSize: 12, color: "#aaa", fontWeight: "600" },
+
+  // ── log card ──
+  logCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    marginHorizontal: 14,
+    marginBottom: 8,
+    borderRadius: 14,
+    padding: 14,
+    borderLeftWidth: 4,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  entityBubble: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
   },
-  logInfo: {
-    flex: 1,
-  },
-  logAction: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#333",
-  },
-  logEntity: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 2,
-  },
-  logTime: {
-    fontSize: 11,
-    color: "#999",
-    textAlign: "right",
-    lineHeight: 16,
-  },
-  logDetails: {
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
-    paddingTop: 10,
-  },
-  detailRow: {
+  logBody: { flex: 1 },
+  logTopRow: {
     flexDirection: "row",
-    paddingVertical: 6,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: "#666",
-    fontWeight: "500",
-    width: 70,
-  },
-  detailValue: {
-    fontSize: 12,
-    color: "#333",
-    fontWeight: "500",
-    flex: 1,
-  },
-  loadingMore: {
-    paddingVertical: 20,
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 5,
   },
+  actionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  actionDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
+  actionPillText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
+  entityLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
+  entityName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    marginBottom: 3,
+  },
+  description: {
+    fontSize: 12.5,
+    color: "#666",
+    lineHeight: 17,
+    marginBottom: 7,
+  },
+  metaRow: { flexDirection: "row", alignItems: "center" },
+  metaItem: { flexDirection: "row", alignItems: "center", gap: 3 },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#CCC",
+    marginHorizontal: 6,
+  },
+  metaText: { fontSize: 11, color: "#aaa", fontWeight: "500" },
+
+  // ── empty ──
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#555",
+    marginBottom: 5,
+  },
+  emptySubtitle: { fontSize: 13, color: "#aaa" },
+
+  // ── detail modal ──
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
-  modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "70%",
-    paddingTop: 15,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
-  },
-  filterForm: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 10,
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    marginBottom: 20,
+  modalSheet: {
+    backgroundColor: "#F2F3F7",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: "88%",
     overflow: "hidden",
   },
-  picker: {
-    height: 40,
-    color: "#333",
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#DDD",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 2,
   },
-  filterActions: {
+  modalHeaderStrip: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
   },
-  filterBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+  entityBubbleLg: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
     alignItems: "center",
   },
-  clearBtn: {
-    borderWidth: 1,
-    borderColor: "#ddd",
+  modalEntityName: { fontSize: 15, fontWeight: "700", color: "#1A1A1A" },
+  closeBtn: { padding: 4 },
+  closeBtnCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#e0e0e0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalBody: { padding: 16, paddingBottom: 36 },
+
+  // info cards grid
+  infoGrid: { flexDirection: "row", gap: 10, marginBottom: 12 },
+  infoCard: {
+    flex: 1,
     backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
-  clearBtnText: {
-    color: "#333",
-    fontWeight: "600",
-    fontSize: 14,
+  infoCardIcon: { marginBottom: 6 },
+  infoCardLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#aaa",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 3,
   },
-  applyBtn: {
-    backgroundColor: "#7d53f6",
+  infoCardValue: { fontSize: 13, fontWeight: "700", color: "#222" },
+  infoCardSub: { fontSize: 11, color: "#aaa", marginTop: 2 },
+
+  summaryCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
-  applyBtnText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#aaa",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
   },
+  summaryText: { fontSize: 13.5, color: "#333", lineHeight: 20 },
+
+  // diff section
+  diffSection: { gap: 10 },
+  diffBlock: {
+    borderRadius: 12,
+    padding: 14,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  diffBefore: { backgroundColor: "#FFF5F5" },
+  diffAfter: { backgroundColor: "#F0FFF5" },
+  diffHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+  },
+  diffTitle: { fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+
+  jsonBlock: { gap: 6 },
+  jsonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    gap: 4,
+  },
+  jsonKey: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#666",
+    backgroundColor: "#0000000a",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  jsonVal: { fontSize: 12, color: "#333", flex: 1, paddingVertical: 2 },
+  jsonNull: { fontSize: 12, color: "#BBB", fontStyle: "italic" },
 });
 
 export default AuditLogsScreen;

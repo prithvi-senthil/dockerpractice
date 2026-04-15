@@ -175,15 +175,18 @@ CREATE TABLE notifications (
   INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Insert sample users (password: 'admin123' or 'password123' hashed with bcrypt)
+-- Insert sample users with proper bcrypt hashes
+-- All users: password = 123
 INSERT INTO users (name, email, password, user_type) VALUES
-('Admin User', 'admin@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'admin'),
-('Dr. Rajesh Kumar', 'rajesh@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'faculty'),
-('Prof. Priya Sharma', 'priya@college.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'faculty'),
-('Rahul Verma', 'rahul@student.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'student'),
-('Sneha Patel', 'sneha@student.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'student'),
-('Arjun Singh', 'arjun@student.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'student'),
-('Ananya Desai', 'ananya@student.edu', '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36Z1Y1fG5L3agYJwfPiS0um', 'student');
+('Admin User', 'admin@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'admin'),
+('Dr. Rajesh Kumar', 'rajesh@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
+('Prof. Priya Sharma', 'priya@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
+('Test Student Faculty', 'test-faculty@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
+('Rahul Verma', 'rahul@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
+('Sneha Patel', 'sneha@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
+('Test Student', 'test-student@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
+('Arjun Singh', 'arjun@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
+('Ananya Desai', 'ananya@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student');
 
 -- Insert sample activities
 INSERT INTO activities (title, description, owner_id, start_time, end_time, location, max_students, status) VALUES
@@ -200,3 +203,40 @@ INSERT INTO activity_enrollments (activity_id, student_id) VALUES
 -- Sample leave request
 INSERT INTO leave_requests (student_id, activity_id, leave_date, reason, status) VALUES
 (3, 1, '2026-04-07', 'Medical appointment', 'pending');
+-- System settings table (for storing configuration key-value pairs)
+CREATE TABLE IF NOT EXISTS system_settings (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  setting_key VARCHAR(100) NOT NULL UNIQUE,
+  setting_value TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_setting_key (setting_key),
+  INDEX idx_setting_key (setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Audit logs table (track all administrative changes)
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  actor_id BIGINT,
+  action VARCHAR(50) NOT NULL,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id BIGINT,
+  entity_name VARCHAR(255),
+  old_value JSON,
+  new_value JSON,
+  description TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_action (action),
+  INDEX idx_entity_type (entity_type),
+  INDEX idx_actor_id (actor_id),
+  INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insert default system settings
+INSERT IGNORE INTO system_settings (setting_key, setting_value, description) VALUES
+('otp_validity', '10', 'OTP validity in seconds'),
+('working_hours_enabled', 'true', 'Whether working hours validation is enabled'),
+('working_hours_start', '08:00', 'Working hours start time (HH:MM format)'),
+('working_hours_end', '17:00', 'Working hours end time (HH:MM format)');

@@ -173,7 +173,7 @@ const UserManagementScreen = () => {
           style={styles.editIconBtn}
           onPress={() => handleEditPriority(item)}
         >
-          <Ionicons name="pencil-outline" size={18} color="#7d53f6" />
+          <Ionicons name="create" size={18} color="#7d53f6" />
         </TouchableOpacity>
       </View>
 
@@ -240,7 +240,7 @@ const UserManagementScreen = () => {
       {/* Search and Filter */}
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
-          <Ionicons name="search-outline" size={18} color="#999" />
+          <Ionicons name="search" size={18} color="#999" />
           <TextInput
             style={styles.searchInput}
             placeholder="Search by name or email..."
@@ -330,7 +330,7 @@ const UserManagementScreen = () => {
       {/* Users List */}
       {filteredUsers.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Ionicons name="people-outline" size={48} color="#ccc" />
+          <Ionicons name="people" size={48} color="#ccc" />
           <Text style={styles.emptyText}>No users found</Text>
           <Text style={styles.emptySubText}>
             {searchText.trim()
@@ -367,7 +367,7 @@ const UserManagementScreen = () => {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Change Priority Level</Text>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close-outline" size={24} color="#333" />
+                <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
 

@@ -8,13 +8,13 @@ router.post("/mark-end", auth, requireRole("student"), ctrl.markEnd);
 router.get(
   "/my-attendance",
   auth,
-  requireRole("student", "faculty"),
+  requireRole("student", "faculty", "admin"),
   ctrl.getMyAttendance,
 );
 router.get(
   "/summary",
   auth,
-  requireRole("student", "faculty"),
+  requireRole("student", "faculty", "admin"),
   ctrl.getAttendanceSummary,
 );
 router.get(
