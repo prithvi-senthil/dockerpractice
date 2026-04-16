@@ -1,15 +1,27 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const attendanceController = require('../controllers/attendanceController');
-const { auth, requireRole } = require('../middleware/auth');
+const ctrl = require("../controllers/attendanceController");
+const { auth, requireRole } = require("../middleware/auth");
 
-// Student routes
-router.post('/mark-start', auth, requireRole('student'), attendanceController.markStart);
-router.post('/mark-end', auth, requireRole('student'), attendanceController.markEnd);
-router.get('/my-attendance', auth, requireRole('student'), attendanceController.getMyAttendance);
-router.get('/summary', auth, requireRole('student'), attendanceController.getAttendanceSummary);
-
-// Faculty routes
-router.get('/activity/:id/report', auth, requireRole('faculty'), attendanceController.getActivityReport);
+router.post("/mark-start", auth, requireRole("student"), ctrl.markStart);
+router.post("/mark-end", auth, requireRole("student"), ctrl.markEnd);
+router.get(
+  "/my-attendance",
+  auth,
+  requireRole("student", "faculty", "admin"),
+  ctrl.getMyAttendance,
+);
+router.get(
+  "/summary",
+  auth,
+  requireRole("student", "faculty", "admin"),
+  ctrl.getAttendanceSummary,
+);
+router.get(
+  "/session/:id/report",
+  auth,
+  requireRole("faculty", "admin"),
+  ctrl.getSessionReport,
+);
 
 module.exports = router;

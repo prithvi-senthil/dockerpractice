@@ -155,6 +155,13 @@ backend/.cache/
 **/secure/
 **/confidential/
 
+# Firebase & Google OAuth credentials
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase.json
+**/*-firebase-adminsdk-*.json
+**/eas.json
+
 # =====================================================
 # DOCKER & DEPLOYMENT
 # =====================================================

@@ -1,25 +1,38 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useAuth } from '../context/AuthContext';
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useAuth } from "../context/AuthContext";
+import { Ionicons } from "@expo/vector-icons";
 
-// Screens
-import LoginScreen from '../screens/LoginScreen';
-import RegisterScreen from '../screens/RegisterScreen';
-import CalendarScreen from '../screens/CalendarScreen';
-import ActivityDetailScreen from '../screens/ActivityDetailScreen';
-import CreateActivityScreen from '../screens/CreateActivityScreen';
-import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
-import LeaveRequestScreen from '../screens/LeaveRequestScreen';
-import MyLeavesScreen from '../screens/MyLeavesScreen';
-import StudentListScreen from '../screens/StudentListScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import LoginScreen from "../screens/auth/LoginScreen";
+import RegisterScreen from "../screens/auth/RegisterScreen";
+import DashboardScreen from "../screens/dashboard/DashboardScreen";
+import CalendarScreen from "../screens/attendance/CalendarScreen";
+import ActivityDetailScreen from "../screens/activities/ActivityDetailScreen";
+import CreateActivityScreen from "../screens/activities/CreateActivityScreen";
+import AttendanceHistoryScreen from "../screens/attendance/AttendanceHistoryScreen";
+import LeaveRequestScreen from "../screens/leaves/LeaveRequestScreen";
+import MyLeavesScreen from "../screens/leaves/MyLeavesScreen";
+import StudentListScreen from "../screens/admin/StudentListScreen";
+import ProfileScreen from "../screens/profile/ProfileScreen";
+import NotificationScreen from "../screens/notifications/NotificationScreen";
+import CourseAssignmentApprovalScreen from "../screens/faculty/CourseAssignmentApprovalScreen";
+import PendingCoursesScreen from "../screens/faculty/PendingCoursesScreen";
+import CreateCourseScreen from "../screens/CreateCourseScreen";
+import CourseAssignmentScreen from "../screens/CourseAssignmentScreen";
+import StudentEnrollmentScreen from "../screens/admin/StudentEnrollmentScreen";
+import InfrastructureManagementScreen from "../screens/InfrastructureManagementScreen";
+import SettingsScreen from "../screens/admin/SettingsScreen";
+import AuditLogsScreen from "../screens/AuditLogsScreen";
+import UserManagementScreen from "../screens/UserManagementScreen";
+import CourseDetailsScreen from "../screens/CourseDetailsScreen";
+import NotificationIcon from "../components/NotificationIcon";
+import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
 
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// Auth Stack
 const AuthStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Login" component={LoginScreen} />
@@ -27,102 +40,393 @@ const AuthStack = () => (
   </Stack.Navigator>
 );
 
-// Student Bottom Tabs
+// Student View: Dashboard, Calendar, Attendance History, Leaves, Profile
 const StudentTabs = () => (
-  <Tab.Navigator screenOptions={{ headerShown: false }}>
-    <Tab.Screen 
-      name="Calendar" 
-      component={CalendarScreen} 
-      options={{ tabBarLabel: 'Activities' }} 
+  <Tab.Navigator
+    screenOptions={({ route }) => ({
+      headerShown: false,
+      tabBarShowLabel: true,
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName;
+        if (route.name === "DashboardTab")
+          iconName = focused ? "home" : "home-outline";
+        else if (route.name === "CalendarTab")
+          iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "AttendanceTab")
+          iconName = focused ? "list" : "list-outline";
+        else if (route.name === "LeavesTab")
+          iconName = focused ? "document-text" : "document-text-outline";
+        else iconName = focused ? "person" : "person-outline";
+        return <Ionicons name={iconName} size={size || 24} color={color} />;
+      },
+      tabBarActiveTintColor: "#7d53f6",
+      tabBarInactiveTintColor: "#999",
+      tabBarLabel:
+        route.name === "DashboardTab"
+          ? "Home"
+          : route.name === "CalendarTab"
+            ? "Calendar"
+            : route.name === "AttendanceTab"
+              ? "Attendance"
+              : route.name === "LeavesTab"
+                ? "Leaves"
+                : "Profile",
+      tabBarLabelStyle: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 2,
+      },
+      tabBarStyle: {
+        backgroundColor: "#fff",
+        borderTopColor: "#eee",
+        borderTopWidth: 1,
+        height: 60,
+        paddingBottom: 8,
+        paddingTop: 8,
+      },
+    })}
+  >
+    <Tab.Screen
+      name="DashboardTab"
+      component={DashboardScreen}
+      options={{ title: "Dashboard" }}
     />
-    <Tab.Screen 
-      name="MyAttendance" 
-      component={AttendanceHistoryScreen} 
-      options={{ tabBarLabel: 'Attendance' }} 
+    <Tab.Screen
+      name="CalendarTab"
+      component={CalendarScreen}
+      options={{ title: "Calendar" }}
     />
-    <Tab.Screen 
-      name="MyLeaves" 
-      component={MyLeavesScreen} 
-      options={{ tabBarLabel: 'Leaves' }} 
+    <Tab.Screen
+      name="AttendanceTab"
+      component={AttendanceHistoryScreen}
+      options={{ title: "Attendance" }}
     />
-    <Tab.Screen 
-      name="Profile" 
-      component={ProfileScreen} 
-      options={{ tabBarLabel: 'Profile' }} 
+    <Tab.Screen
+      name="LeavesTab"
+      component={LeaveRequestScreen}
+      options={{ title: "My Leaves" }}
+    />
+    <Tab.Screen
+      name="ProfileTab"
+      component={ProfileScreen}
+      options={{ title: "Profile" }}
     />
   </Tab.Navigator>
 );
 
-// Faculty Bottom Tabs
+// Faculty View: Dashboard, Calendar, Leave Requests, Profile
 const FacultyTabs = () => (
-  <Tab.Navigator screenOptions={{ headerShown: false }}>
-    <Tab.Screen 
-      name="Calendar" 
-      component={CalendarScreen} 
-      options={{ tabBarLabel: 'Activities' }} 
+  <Tab.Navigator
+    screenOptions={({ route, navigation }) => ({
+      headerShown: true,
+      headerStyle: { backgroundColor: "#fff" },
+      headerTintColor: "#7d53f6",
+      headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+      tabBarShowLabel: true,
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName;
+        if (route.name === "DashboardTab")
+          iconName = focused ? "home" : "home-outline";
+        else if (route.name === "CalendarTab")
+          iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "CoursesTab")
+          iconName = focused ? "book" : "book-outline";
+        else if (route.name === "LeavesTab")
+          iconName = focused ? "document-text" : "document-text-outline";
+        else iconName = focused ? "person" : "person-outline";
+        return <Ionicons name={iconName} size={size || 24} color={color} />;
+      },
+      tabBarActiveTintColor: "#7d53f6",
+      tabBarInactiveTintColor: "#999",
+      tabBarLabel:
+        route.name === "DashboardTab"
+          ? "Home"
+          : route.name === "CalendarTab"
+            ? "Calendar"
+            : route.name === "CoursesTab"
+              ? "Courses"
+              : route.name === "LeavesTab"
+                ? "Leave Requests"
+                : "Profile",
+      tabBarLabelStyle: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 2,
+      },
+      tabBarStyle: {
+        backgroundColor: "#fff",
+        borderTopColor: "#eee",
+        borderTopWidth: 1,
+        height: 60,
+        paddingBottom: 8,
+        paddingTop: 8,
+      },
+      headerRight: () => (
+        <NotificationIcon
+          onPress={() => navigation.navigate("Notifications")}
+          tintColor="#7d53f6"
+        />
+      ),
+    })}
+  >
+    <Tab.Screen
+      name="DashboardTab"
+      component={DashboardScreen}
+      options={{ title: "Dashboard" }}
     />
-    <Tab.Screen 
-      name="MyLeaves" 
-      component={MyLeavesScreen} 
-      options={{ tabBarLabel: 'Leave Requests' }} 
+    <Tab.Screen
+      name="CalendarTab"
+      component={CalendarScreen}
+      options={{ title: "Calendar" }}
     />
-    <Tab.Screen 
-      name="Profile" 
-      component={ProfileScreen} 
-      options={{ tabBarLabel: 'Profile' }} 
+    <Tab.Screen
+      name="CoursesTab"
+      component={PendingCoursesScreen}
+      options={{ title: "My Courses" }}
+    />
+    <Tab.Screen
+      name="LeavesTab"
+      component={MyLeavesScreen}
+      options={{ title: "Leave Requests" }}
+    />
+    <Tab.Screen
+      name="ProfileTab"
+      component={ProfileScreen}
+      options={{ title: "Profile" }}
     />
   </Tab.Navigator>
 );
 
-// Main App Stack
+// Admin View: Dashboard (with Users Management), Calendar, Profile
+const AdminTabs = () => (
+  <Tab.Navigator
+    screenOptions={({ route, navigation }) => ({
+      headerShown: true,
+      headerStyle: { backgroundColor: "#fff" },
+      headerTintColor: "#7d53f6",
+      headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+      tabBarShowLabel: true,
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName;
+        if (route.name === "DashboardTab")
+          iconName = focused ? "home" : "home-outline";
+        else if (route.name === "CalendarTab")
+          iconName = focused ? "calendar" : "calendar-outline";
+        else iconName = focused ? "person" : "person-outline";
+        return <Ionicons name={iconName} size={size || 24} color={color} />;
+      },
+      tabBarActiveTintColor: "#7d53f6",
+      tabBarInactiveTintColor: "#999",
+      tabBarLabel:
+        route.name === "DashboardTab"
+          ? "Home"
+          : route.name === "CalendarTab"
+            ? "Calendar"
+            : "Profile",
+      tabBarLabelStyle: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 2,
+      },
+      tabBarStyle: {
+        backgroundColor: "#fff",
+        borderTopColor: "#eee",
+        borderTopWidth: 1,
+        height: 60,
+        paddingBottom: 8,
+        paddingTop: 8,
+      },
+      headerRight: () => (
+        <NotificationIcon
+          onPress={() => navigation.navigate("Notifications")}
+          tintColor="#7d53f6"
+        />
+      ),
+    })}
+  >
+    <Tab.Screen
+      name="DashboardTab"
+      component={DashboardScreen}
+      options={{ title: "Admin Dashboard" }}
+    />
+    <Tab.Screen
+      name="CalendarTab"
+      component={CalendarScreen}
+      options={{ title: "Calendar" }}
+    />
+    <Tab.Screen
+      name="ProfileTab"
+      component={ProfileScreen}
+      options={{ title: "Profile" }}
+    />
+  </Tab.Navigator>
+);
+
 const AppStack = () => {
   const { user } = useAuth();
-  const isFaculty = user?.user_type === 'faculty';
+
+  let MainTabs;
+  switch (user?.user_type) {
+    case "admin":
+      MainTabs = AdminTabs;
+      break;
+    case "faculty":
+      MainTabs = FacultyTabs;
+      break;
+    default:
+      MainTabs = StudentTabs;
+  }
 
   return (
     <Stack.Navigator>
-      <Stack.Screen 
-        name="Home" 
-        component={isFaculty ? FacultyTabs : StudentTabs} 
-        options={{ headerShown: false }} 
+      <Stack.Screen
+        name="Home"
+        component={MainTabs}
+        options={{ headerShown: false }}
       />
-      <Stack.Screen 
-        name="ActivityDetail" 
-        component={ActivityDetailScreen} 
-        options={{ title: 'Activity Details' }} 
+
+      {/* Shared Screens */}
+      <Stack.Screen
+        name="ActivityDetail"
+        component={ActivityDetailScreen}
+        options={{
+          title: "Session Details",
+          headerStyle: { backgroundColor: "#f5f5f5" },
+          headerTintColor: "#1976D2",
+          headerTitleStyle: { fontWeight: "bold" },
+        }}
       />
-      {isFaculty && (
-        <>
-          <Stack.Screen 
-            name="CreateActivity" 
-            component={CreateActivityScreen} 
-            options={{ title: 'Create Activity' }} 
-          />
-          <Stack.Screen 
-            name="StudentList" 
-            component={StudentListScreen} 
-            options={{ title: 'Enrolled Students' }} 
-          />
-        </>
-      )}
-      {!isFaculty && (
-        <Stack.Screen 
-          name="LeaveRequest" 
-          component={LeaveRequestScreen} 
-          options={{ title: 'Request Leave' }} 
-        />
-      )}
+
+      <Stack.Screen
+        name="StudentList"
+        component={StudentListScreen}
+        options={{
+          title: "Course Students",
+          headerStyle: { backgroundColor: "#f5f5f5" },
+          headerTintColor: "#1976D2",
+          headerTitleStyle: { fontWeight: "bold" },
+        }}
+      />
+
+      <Stack.Screen
+        name="CourseDetails"
+        component={CourseDetailsScreen}
+        options={{
+          title: "Course Details",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationScreen}
+        options={{
+          title: "Notifications",
+          headerStyle: { backgroundColor: "#f5f5f5" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      {/* Faculty Screens */}
+      <Stack.Screen
+        name="CourseAssignmentApproval"
+        component={CourseAssignmentApprovalScreen}
+        options={{
+          title: "Course Assignments",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      {/* Admin Screens */}
+      <Stack.Screen
+        name="StudentEnrollment"
+        component={StudentEnrollmentScreen}
+        options={{
+          title: "Enroll Students",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="InfrastructureManagementScreen"
+        component={InfrastructureManagementScreen}
+        options={{
+          title: "Infrastructure Management",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="SettingsScreen"
+        component={SettingsScreen}
+        options={{
+          title: "System Settings",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AuditLogsScreen"
+        component={AuditLogsScreen}
+        options={{
+          title: "Audit Logs",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="UserManagementScreen"
+        component={UserManagementScreen}
+        options={{
+          title: "User Management",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="CreateCourse"
+        component={CreateCourseScreen}
+        options={{
+          title: "Create Course",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="CourseAssignment"
+        component={CourseAssignmentScreen}
+        options={{
+          title: "Assign Course to Faculty",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
     </Stack.Navigator>
   );
 };
 
-// Root Navigator
 const AppNavigator = () => {
   const { isAuthenticated, loading } = useAuth();
 
-  if (loading) {
-    return null; // You can add a loading screen here
-  }
+  if (loading) return null;
 
   return (
     <NavigationContainer>
