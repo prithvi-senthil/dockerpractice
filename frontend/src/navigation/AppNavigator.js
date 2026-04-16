@@ -28,6 +28,7 @@ import AuditLogsScreen from "../screens/AuditLogsScreen";
 import UserManagementScreen from "../screens/UserManagementScreen";
 import CourseDetailsScreen from "../screens/CourseDetailsScreen";
 import NotificationIcon from "../components/NotificationIcon";
+import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -196,7 +197,7 @@ const FacultyTabs = () => (
   </Tab.Navigator>
 );
 
-// Admin View: Dashboard (with integrated admin panel), Calendar, Profile
+// Admin View: Dashboard (with Users Management), Calendar, Profile
 const AdminTabs = () => (
   <Tab.Navigator
     screenOptions={({ route, navigation }) => ({

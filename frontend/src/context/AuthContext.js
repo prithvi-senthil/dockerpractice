@@ -1,6 +1,6 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../services/api';
+import React, { createContext, useState, useContext, useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import api from "../services/api";
 
 const AuthContext = createContext({});
 
@@ -16,17 +16,17 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
-      const userData = await AsyncStorage.getItem('user');
-      
+      const token = await AsyncStorage.getItem("token");
+      const userData = await AsyncStorage.getItem("user");
+
       if (token && userData) {
         setUser(JSON.parse(userData));
         setIsAuthenticated(true);
         // Set default authorization header
-        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
       }
     } catch (error) {
-      console.error('Check auth error:', error);
+      console.error("Check auth error:", error);
     } finally {
       setLoading(false);
     }
@@ -36,23 +36,59 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setLoading(true);
-      const response = await api.post('/auth/login', { email, password });
+      const response = await api.post("/auth/login", { email, password });
       const { token, user: userData } = response.data;
-      
-      await AsyncStorage.setItem('token', token);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
+
+      await AsyncStorage.setItem("token", token);
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
+
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
       setUser(userData);
       setIsAuthenticated(true);
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Login failed. Please check your credentials.' 
+      console.error("Login error:", error);
+      return {
+        success: false,
+        error:
+          error.response?.data?.message ||
+          "Login failed. Please check your credentials.",
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Google OAuth Login
+  const loginWithGoogle = async (email, serverAuthCode) => {
+    try {
+      setLoading(true);
+      const response = await api.post("/auth/google-login", {
+        email: email,
+        serverAuthCode: serverAuthCode,
+      });
+
+      const { token, user: userData } = response.data;
+
+      await AsyncStorage.setItem("token", token);
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
+
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+      setUser(userData);
+      setIsAuthenticated(true);
+
+      return { success: true };
+    } catch (error) {
+      console.error("Google login error:", error);
+      return {
+        success: false,
+        error:
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Google login failed. Please ensure you are registered.",
       };
     } finally {
       setLoading(false);
@@ -63,33 +99,36 @@ export const AuthProvider = ({ children }) => {
   const testLogin = async (email, userType) => {
     try {
       setLoading(true);
-      
+
       // Create fake user data based on email domain
-      const isFaculty = userType === 'faculty' || email.includes('faculty') || email.includes('teacher');
-      const finalUserType = isFaculty ? 'faculty' : 'student';
-      
+      const isFaculty =
+        userType === "faculty" ||
+        email.includes("faculty") ||
+        email.includes("teacher");
+      const finalUserType = isFaculty ? "faculty" : "student";
+
       const fakeUser = {
-        id: finalUserType === 'faculty' ? `F${Date.now()}` : `S${Date.now()}`,
+        id: finalUserType === "faculty" ? `F${Date.now()}` : `S${Date.now()}`,
         email: email,
         user_type: finalUserType,
-        name: email.split('@')[0],
+        name: email.split("@")[0],
         isTestUser: true,
       };
-      
+
       const fakeToken = `test-token-${Date.now()}`;
-      
+
       // Store in AsyncStorage
-      await AsyncStorage.setItem('token', fakeToken);
-      await AsyncStorage.setItem('user', JSON.stringify(fakeUser));
-      
+      await AsyncStorage.setItem("token", fakeToken);
+      await AsyncStorage.setItem("user", JSON.stringify(fakeUser));
+
       // Update state
       setUser(fakeUser);
       setIsAuthenticated(true);
-      
-      console.log('✅ Test login successful as:', finalUserType);
+
+      console.log("✅ Test login successful as:", finalUserType);
       return { success: true };
     } catch (error) {
-      console.error('Test login error:', error);
+      console.error("Test login error:", error);
       return { success: false, error: error.message };
     } finally {
       setLoading(false);
@@ -100,23 +139,25 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       setLoading(true);
-      const response = await api.post('/auth/register', userData);
+      const response = await api.post("/auth/register", userData);
       const { token, user: newUser } = response.data;
-      
-      await AsyncStorage.setItem('token', token);
-      await AsyncStorage.setItem('user', JSON.stringify(newUser));
-      
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
+
+      await AsyncStorage.setItem("token", token);
+      await AsyncStorage.setItem("user", JSON.stringify(newUser));
+
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
       setUser(newUser);
       setIsAuthenticated(true);
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Register error:', error);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Registration failed. Please try again.' 
+      console.error("Register error:", error);
+      return {
+        success: false,
+        error:
+          error.response?.data?.message ||
+          "Registration failed. Please try again.",
       };
     } finally {
       setLoading(false);
@@ -127,17 +168,17 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
-      
-      delete api.defaults.headers.common['Authorization'];
-      
+      await AsyncStorage.removeItem("token");
+      await AsyncStorage.removeItem("user");
+
+      delete api.defaults.headers.common["Authorization"];
+
       setUser(null);
       setIsAuthenticated(false);
-      
+
       return { success: true };
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error("Logout error:", error);
       return { success: false, error: error.message };
     } finally {
       setLoading(false);
@@ -145,16 +186,19 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      loading,
-      isAuthenticated,
-      login,
-      testLogin,
-      register,
-      logout,
-      checkAuthStatus,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        isAuthenticated,
+        login,
+        loginWithGoogle,
+        testLogin,
+        register,
+        logout,
+        checkAuthStatus,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -163,7 +207,7 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };

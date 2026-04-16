@@ -9,9 +9,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
-  Picker,
   TextInput,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import API from "../services/api";
 

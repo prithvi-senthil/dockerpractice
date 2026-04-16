@@ -9,19 +9,66 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
 import { useAuth } from "../../context/AuthContext";
+
+GoogleSignin.configure({
+  clientId:
+    "800231155792-ahm9cf1p82ho2sn0irlkr7u72pb6n149.apps.googleusercontent.com",
+  webClientId:
+    "800231155792-ahm9cf1p82ho2sn0irlkr7u72pb6n149.apps.googleusercontent.com",
+  scopes: ["profile", "email"],
+  offlineAccess: true,
+  forceCodeForRefreshToken: true,
+});
 
 const LoginScreen = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { login, loginWithGoogle } = useAuth();
 
-  const { login, testLogin } = useAuth();
+  const handleGoogleLogin = async () => {
+    try {
+      setLoading(true);
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+
+      const user = userInfo?.data?.user;
+      const serverAuthCode = userInfo?.data?.serverAuthCode;
+
+      if (user && user.email) {
+        const result = await loginWithGoogle(user.email, serverAuthCode);
+        if (!result.success) {
+          Alert.alert("Login Failed", result.error);
+        }
+      } else {
+        Alert.alert("Error", "Could not get user information from Google");
+      }
+    } catch (error) {
+      console.log("Google Sign-In error:", error);
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        console.log("Sign in cancelled");
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        Alert.alert("Error", "Sign in already in progress");
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert("Error", "Google Play Services not available");
+      } else {
+        Alert.alert("Error", error.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert("Error", "Please enter email and password");
+      Alert.alert("Validation Error", "Please enter email and password");
       return;
     }
 
@@ -34,91 +81,115 @@ const LoginScreen = ({ navigation }) => {
     }
   };
 
-  const handleTestLogin = async (userType) => {
-    setLoading(true);
-    const testEmail = userType === 'faculty' ? 'test-faculty@college.edu' : 'test-student@college.edu';
-    const result = await testLogin(testEmail, userType);
-    setLoading(false);
-
-    if (!result.success) {
-      Alert.alert("Test Login Failed", result.error);
-    }
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <View style={styles.content}>
-        <Text style={styles.title}>Attendance Tracker</Text>
-        <Text style={styles.subtitle}>Sign in to continue</Text>
-
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          editable={!loading}
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          editable={!loading}
-        />
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.buttonText}>Login</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={() => navigation.navigate("Register")}>
-          <Text style={styles.linkText}>
-            Don't have an account? <Text style={styles.linkBold}>Register</Text>
-          </Text>
-        </TouchableOpacity>
-
-        {/* Test Credentials */}
-        <View style={styles.credentialsBox}>
-          <Text style={styles.credentialsTitle}>📋 Test Credentials</Text>
-          <Text style={styles.credentialsText}>
-            Email: admin@college.edu{"\n"}
-            Password: password123
-          </Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Logo Section */}
+        <View style={styles.logoSection}>
+          <View style={styles.logoBackground}>
+            <Text style={styles.logoIcon}>📊</Text>
+          </View>
+          <Text style={styles.appTitle}>Attendance System</Text>
+          <Text style={styles.appSubtitle}>Professional Tracking</Text>
         </View>
 
-        {/* Test Login Buttons */}
-        <View style={styles.testLoginContainer}>
+        {/* Form Card */}
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>Sign In</Text>
+          <Text style={styles.formSubtitle}>
+            Enter your credentials to continue
+          </Text>
+
+          {/* Email Input */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="your.email@example.com"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              editable={!loading}
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+
+          {/* Password Input */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Password</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!loading}
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+
+          {/* Sign In Button */}
           <TouchableOpacity
-            style={[styles.testButton, styles.testButtonStudent]}
-            onPress={() => handleTestLogin('student')}
+            style={[
+              styles.button,
+              styles.buttonPrimary,
+              loading && styles.buttonDisabled,
+            ]}
+            onPress={handleLogin}
             disabled={loading}
           >
-            <Text style={styles.testButtonText}>🧑‍🎓 Test as Student</Text>
+            {loading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Sign In</Text>
+            )}
           </TouchableOpacity>
 
+          {/* Divider */}
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Google Sign In Button */}
           <TouchableOpacity
-            style={[styles.testButton, styles.testButtonFaculty]}
-            onPress={() => handleTestLogin('faculty')}
+            style={[
+              styles.button,
+              styles.buttonSecondary,
+              loading && styles.buttonDisabled,
+            ]}
+            onPress={handleGoogleLogin}
             disabled={loading}
           >
-            <Text style={styles.testButtonText}>👨‍🏫 Test as Faculty</Text>
+            {loading ? (
+              <ActivityIndicator color="#374151" size="small" />
+            ) : (
+              <>
+                <Text style={styles.googleIcon}>G</Text>
+                <Text style={styles.buttonSecondaryText}>
+                  Continue with Google
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+              <Text style={styles.footerLink}>Sign Up</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 };
@@ -126,102 +197,146 @@ const LoginScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#FFFFFF",
   },
-  content: {
-    flex: 1,
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: "center",
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
+    paddingVertical: 40,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 10,
-    textAlign: "center",
+  logoSection: {
+    alignItems: "center",
+    marginBottom: 48,
   },
-  subtitle: {
-    fontSize: 16,
-    color: "#666",
-    marginBottom: 40,
-    textAlign: "center",
+  logoBackground: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: "#EEF2FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  logoIcon: {
+    fontSize: 36,
+  },
+  appTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  appSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  formCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  formTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 4,
+  },
+  formSubtitle: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginBottom: 24,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   input: {
-    backgroundColor: "#fff",
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 8,
-    marginBottom: 15,
-    fontSize: 16,
+    fontSize: 15,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#D1D5DB",
+    color: "#111827",
   },
   button: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 15,
+    paddingVertical: 11,
     borderRadius: 8,
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
+    marginTop: 8,
   },
-  buttonDisabled: {
-    backgroundColor: "#999",
+  buttonPrimary: {
+    backgroundColor: "#2563EB",
+    marginBottom: 16,
   },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  linkText: {
-    marginTop: 20,
-    textAlign: "center",
-    color: "#666",
-    fontSize: 14,
-  },
-  linkBold: {
-    color: "#007AFF",
-    fontWeight: "600",
-  },
-  credentialsBox: {
-    marginTop: 30,
-    padding: 15,
-    backgroundColor: "#E3F2FD",
-    borderRadius: 8,
+  buttonSecondary: {
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#2196F3",
-  },
-  credentialsTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1976D2",
-    marginBottom: 8,
-  },
-  credentialsText: {
-    fontSize: 12,
-    color: "#1565C0",
-    lineHeight: 18,
-  },
-  testLoginContainer: {
-    marginTop: 20,
+    borderColor: "#D1D5DB",
+    flexDirection: "row",
     gap: 10,
   },
-  testButton: {
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    borderWidth: 2,
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
-  testButtonStudent: {
-    borderColor: "#10B981",
-    backgroundColor: "#F0FDF4",
-  },
-  testButtonFaculty: {
-    borderColor: "#F59E0B",
-    backgroundColor: "#FFFBEB",
-  },
-  testButtonText: {
-    fontSize: 14,
+  buttonSecondaryText: {
+    color: "#374151",
+    fontSize: 15,
     fontWeight: "600",
-    color: "#333",
+  },
+  googleIcon: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#D1D5DB",
+  },
+  dividerText: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    fontWeight: "600",
+    marginHorizontal: 12,
+  },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginTop: 20,
+    alignItems: "center",
+  },
+  footerText: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  footerLink: {
+    fontSize: 13,
+    color: "#2563EB",
+    fontWeight: "700",
   },
 });
 

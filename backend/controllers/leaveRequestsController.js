@@ -100,11 +100,13 @@ exports.create = async (req, res) => {
   }
 };
 
-// GET /api/leaves - Get leave requests based on user role
+// GET /api/leaves - Get leave requests with RBAC filtering
 exports.getAll = async (req, res) => {
   try {
     const userId = req.user?.id;
     const userType = req.user?.user_type;
+    const isDepartmentFiltered = req.isDepartmentFiltered || false;
+    const hodId = req.hodId || null;
 
     if (!userId || !userType) {
       return res
@@ -116,16 +118,14 @@ exports.getAll = async (req, res) => {
       SELECT lr.*, 
              u.name as student_name, 
              u.user_type as student_type,
-             c.title as course_title,
-             c.assigned_faculty_id as faculty_id,
-             c.created_by as course_creator_id,
-             f.name as faculty_name,
-             admin.name as admin_name
+             u.report_to,
+             a.title as activity_title,
+             a.owner_id as faculty_id,
+             f.name as faculty_name
       FROM leave_requests lr
       JOIN users u ON lr.student_id = u.id
-      LEFT JOIN courses c ON lr.course_id = c.id
-      LEFT JOIN users f ON c.assigned_faculty_id = f.id
-      LEFT JOIN users admin ON c.created_by = admin.id
+      LEFT JOIN activities a ON lr.activity_id = a.id
+      LEFT JOIN users f ON a.owner_id = f.id
       WHERE 1=1
     `;
     const params = [];
@@ -137,19 +137,23 @@ exports.getAll = async (req, res) => {
     } else if (userType === "faculty") {
       // Faculty see:
       // 1. Their own leave requests (where they are the requester)
-      // 2. Leave requests from their students (where they are assigned to the course)
+      // 2. Leave requests from their activity attendees
       query += ` AND (
         lr.student_id = ? 
-        OR (lr.course_id IS NOT NULL AND c.assigned_faculty_id = ?)
+        OR (lr.activity_id IS NOT NULL AND a.owner_id = ?)
       )`;
       params.push(userId, userId);
+    } else if (userType === "hod" && isDepartmentFiltered && hodId) {
+      // HOD sees leaves from faculty in their department
+      query += ` AND u.report_to = ?`;
+      params.push(hodId);
     }
-    // Admin sees all
+    // Admin sees all (no filter)
 
     query += ` ORDER BY lr.created_at DESC`;
 
     const [requests] = await db.query(query, params);
-    res.json({ leaves: requests || [] });
+    res.json({ leaves: requests || [], count: requests?.length || 0 });
   } catch (error) {
     console.error("Get leaves error:", error);
     res.status(500).json({ error: "Failed to fetch leave requests" });
@@ -157,12 +161,12 @@ exports.getAll = async (req, res) => {
 };
 
 // PUT /api/leaves/:id - Approve/Reject a leave request
+// Uses enhanced RBAC via canApproveRequest middleware
 exports.updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, rejection_reason } = req.body;
     const approver_id = req.user.id;
-    const approver_type = req.user.user_type;
 
     if (!["APPROVED", "REJECTED"].includes(status)) {
       return res
@@ -170,12 +174,12 @@ exports.updateStatus = async (req, res) => {
         .json({ error: "Invalid status. Use APPROVED or REJECTED" });
     }
 
-    // Fetch the leave request with student info and course info
+    // Get the complete leave request
     const [leave] = await db.query(
       `SELECT lr.*, 
               u.user_type as requester_type,
-              c.assigned_faculty_id, 
-              c.created_by as course_creator_id
+              u.name as requester_name,
+              c.title as course_title
        FROM leave_requests lr 
        JOIN users u ON lr.student_id = u.id
        LEFT JOIN courses c ON lr.course_id = c.id 
@@ -188,56 +192,6 @@ exports.updateStatus = async (req, res) => {
     }
 
     const leaveRecord = leave[0];
-
-    // APPROVAL CHAIN LOGIC:
-    // 1. If student requested leave: only assigned faculty can approve
-    // 2. If faculty requested leave: only admin who created/assigned the course can approve
-    // 3. If admin requested leave: only other admins can approve
-
-    if (leaveRecord.requester_type === "student") {
-      // Student leave must be approved by the assigned faculty
-      if (!leaveRecord.assigned_faculty_id) {
-        return res
-          .status(400)
-          .json({ error: "No faculty assigned to this course" });
-      }
-      if (
-        approver_type !== "faculty" ||
-        approver_id !== leaveRecord.assigned_faculty_id
-      ) {
-        return res.status(403).json({
-          error: "Only the assigned faculty can approve student leave requests",
-        });
-      }
-    } else if (leaveRecord.requester_type === "faculty") {
-      // Faculty leave must be approved by the admin who created the course
-      if (!leaveRecord.course_creator_id) {
-        return res
-          .status(400)
-          .json({ error: "Could not determine course creator" });
-      }
-      if (
-        approver_type !== "admin" ||
-        approver_id !== leaveRecord.course_creator_id
-      ) {
-        return res.status(403).json({
-          error:
-            "Only the admin who created this course can approve faculty leave requests",
-        });
-      }
-    } else if (leaveRecord.requester_type === "admin") {
-      // Admin leave must be approved by another admin
-      if (approver_type !== "admin") {
-        return res
-          .status(403)
-          .json({ error: "Only admins can approve admin leave requests" });
-      }
-      if (approver_id === leaveRecord.student_id) {
-        return res
-          .status(403)
-          .json({ error: "Cannot approve your own leave request" });
-      }
-    }
 
     // Update the leave request
     const updateData =
@@ -271,7 +225,7 @@ exports.updateStatus = async (req, res) => {
       ],
     );
 
-    // Log the action
+    // Log the action with full audit trail
     await auditLog(
       approver_id,
       status === "APPROVED" ? "APPROVE" : "REJECT",
@@ -279,8 +233,8 @@ exports.updateStatus = async (req, res) => {
       id,
       `${leaveRecord.requester_type.toUpperCase()} Leave Request`,
       { status: "PENDING" },
-      { status, rejection_reason },
-      `${status} leave request from ${leaveRecord.requester_type}`,
+      { status, rejection_reason, requester: leaveRecord.requester_name },
+      `${status} leave request from ${leaveRecord.requester_name} (${leaveRecord.requester_type}) for ${leaveRecord.course_title || "General"}`,
     );
 
     // If approved, mark attendance as on_leave for those dates
