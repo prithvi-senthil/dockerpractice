@@ -8,7 +8,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   ScrollView,
 } from "react-native";
 import {
@@ -16,6 +15,7 @@ import {
   statusCodes,
 } from "@react-native-google-signin/google-signin";
 import { useAuth } from "../../context/AuthContext";
+import ModernLoadingModal from "../../components/ModernLoadingModal";
 
 GoogleSignin.configure({
   clientId:
@@ -37,6 +37,14 @@ const LoginScreen = ({ navigation }) => {
     try {
       setLoading(true);
       await GoogleSignin.hasPlayServices();
+
+      // Sign out first to force account selection dialog
+      try {
+        await GoogleSignin.signOut();
+      } catch (err) {
+        // Already signed out, that's fine
+      }
+
       const userInfo = await GoogleSignin.signIn();
 
       const user = userInfo?.data?.user;
@@ -82,115 +90,106 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+    <>
+      <ModernLoadingModal visible={loading} />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        {/* Logo Section */}
-        <View style={styles.logoSection}>
-          <View style={styles.logoBackground}>
-            <Text style={styles.logoIcon}>📊</Text>
-          </View>
-          <Text style={styles.appTitle}>Attendance System</Text>
-          <Text style={styles.appSubtitle}>Professional Tracking</Text>
-        </View>
-
-        {/* Form Card */}
-        <View style={styles.formCard}>
-          <Text style={styles.formTitle}>Sign In</Text>
-          <Text style={styles.formSubtitle}>
-            Enter your credentials to continue
-          </Text>
-
-          {/* Email Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="your.email@example.com"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!loading}
-              placeholderTextColor="#9CA3AF"
-            />
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Logo Section */}
+          <View style={styles.logoSection}>
+            <View style={styles.logoBackground}>
+              <Text style={styles.logoIcon}>📊</Text>
+            </View>
+            <Text style={styles.appTitle}>Attendance System</Text>
+            <Text style={styles.appSubtitle}>Professional Tracking</Text>
           </View>
 
-          {/* Password Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-              placeholderTextColor="#9CA3AF"
-            />
-          </View>
+          {/* Form Card */}
+          <View style={styles.formCard}>
+            <Text style={styles.formTitle}>Sign In</Text>
+            <Text style={styles.formSubtitle}>
+              Enter your credentials to continue
+            </Text>
 
-          {/* Sign In Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.buttonPrimary,
-              loading && styles.buttonDisabled,
-            ]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
+            {/* Email Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="your.email@example.com"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!loading}
+                placeholderTextColor="#9CA3AF"
+              />
+            </View>
+
+            {/* Password Input */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                editable={!loading}
+                placeholderTextColor="#9CA3AF"
+              />
+            </View>
+
+            {/* Sign In Button */}
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.buttonPrimary,
+                loading && styles.buttonDisabled,
+              ]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
               <Text style={styles.buttonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-
-          {/* Divider */}
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </View>
-
-          {/* Google Sign In Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              styles.buttonSecondary,
-              loading && styles.buttonDisabled,
-            ]}
-            onPress={handleGoogleLogin}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#374151" size="small" />
-            ) : (
-              <>
-                <Text style={styles.googleIcon}>G</Text>
-                <Text style={styles.buttonSecondaryText}>
-                  Continue with Google
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate("Register")}>
-              <Text style={styles.footerLink}>Sign Up</Text>
             </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Google Sign In Button */}
+            <TouchableOpacity
+              style={[
+                styles.button,
+                styles.buttonGoogle,
+                loading && styles.buttonDisabled,
+              ]}
+              onPress={handleGoogleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.googleIconChar}>G</Text>
+              <Text style={styles.buttonGoogleText}>Continue with Google</Text>
+            </TouchableOpacity>
+
+            {/* Footer */}
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+                <Text style={styles.footerLink}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </>
   );
 };
 
@@ -281,12 +280,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#2563EB",
     marginBottom: 16,
   },
-  buttonSecondary: {
+  buttonGoogle: {
     backgroundColor: "#FFFFFF",
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#D1D5DB",
     flexDirection: "row",
-    gap: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   buttonText: {
     color: "#FFFFFF",
@@ -294,15 +301,18 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  buttonSecondaryText: {
-    color: "#374151",
+  buttonGoogleText: {
+    color: "#1F2937",
     fontSize: 15,
     fontWeight: "600",
+    letterSpacing: 0.2,
   },
-  googleIcon: {
-    fontSize: 16,
+  googleIconChar: {
+    fontSize: 18,
     fontWeight: "700",
-    color: "#2563EB",
+    color: "#4285F4",
+    width: 24,
+    textAlign: "center",
   },
   buttonDisabled: {
     opacity: 0.6,

@@ -1,89 +1,102 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
+import LogoutModal from "../components/LogoutModal";
 
 const ProfileScreen = ({ navigation }) => {
   const { user, logout } = useAuth();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: logout,
-      },
-    ]);
+  const handleLogoutPress = () => {
+    setShowLogoutModal(true);
+  };
+
+  const handleConfirmLogout = () => {
+    setShowLogoutModal(false);
+    logout();
+  };
+
+  const handleCancelLogout = () => {
+    setShowLogoutModal(false);
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Profile Header Card */}
-      <View style={styles.card}>
-        <View style={styles.avatarContainer}>
-          <View style={[styles.avatar, { backgroundColor: "#7d53f6" }]}>
-            <Text style={styles.avatarText}>
-              {user?.name?.charAt(0).toUpperCase()}
-            </Text>
+    <>
+      <LogoutModal
+        visible={showLogoutModal}
+        onLogout={handleConfirmLogout}
+        onCancel={handleCancelLogout}
+      />
+      <ScrollView style={styles.container}>
+        {/* Profile Header Card */}
+        <View style={styles.card}>
+          <View style={styles.avatarContainer}>
+            <View style={[styles.avatar, { backgroundColor: "#7d53f6" }]}>
+              <Text style={styles.avatarText}>
+                {user?.name?.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.userName}>{user?.name}</Text>
+            <Text style={styles.userEmail}>{user?.email}</Text>
+            <View style={[styles.roleBadge, { backgroundColor: "#7d53f6" }]}>
+              <Text style={styles.roleText}>
+                {user?.user_type?.toUpperCase()}
+              </Text>
+            </View>
           </View>
-          <Text style={styles.userName}>{user?.name}</Text>
-          <Text style={styles.userEmail}>{user?.email}</Text>
-          <View style={[styles.roleBadge, { backgroundColor: "#7d53f6" }]}>
-            <Text style={styles.roleText}>
-              {user?.user_type?.toUpperCase()}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Account Information Card */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Account Information</Text>
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>User ID:</Text>
-          <Text style={styles.infoValue}>{user?.id}</Text>
         </View>
 
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Account Type:</Text>
-          <Text style={styles.infoValue}>
-            {user?.user_type === "faculty"
-              ? "Faculty"
-              : user?.user_type === "admin"
-                ? "Admin"
-                : "Student"}
-          </Text>
-        </View>
+        {/* Account Information Card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Account Information</Text>
 
-        {user?.priority_level && (
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Priority Level:</Text>
+            <Text style={styles.infoLabel}>User ID:</Text>
+            <Text style={styles.infoValue}>{user?.id}</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Account Type:</Text>
             <Text style={styles.infoValue}>
-              {user?.priority_level === 1
-                ? "Admin (Priority 1)"
-                : user?.priority_level === 2
-                  ? "Manager (Priority 2)"
-                  : "User (Priority 3)"}
+              {user?.user_type === "faculty"
+                ? "Faculty"
+                : user?.user_type === "admin"
+                  ? "Admin"
+                  : "Student"}
             </Text>
           </View>
-        )}
-      </View>
 
-      {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Ionicons name="log-out" size={18} color="#fff" />
-        <Text style={styles.logoutButtonText}>Logout</Text>
-      </TouchableOpacity>
-    </ScrollView>
+          {user?.priority_level && (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Priority Level:</Text>
+              <Text style={styles.infoValue}>
+                {user?.priority_level === 1
+                  ? "Admin (Priority 1)"
+                  : user?.priority_level === 2
+                    ? "Manager (Priority 2)"
+                    : "User (Priority 3)"}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Logout Button */}
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogoutPress}
+        >
+          <Ionicons name="log-out" size={18} color="#fff" />
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </>
   );
 };
 
@@ -235,11 +248,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   logoutButtonText: {
     color: "#fff",
