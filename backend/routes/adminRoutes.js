@@ -107,4 +107,37 @@ router.get(
   adminCtrl.getAdminStatsAsAdmin,
 );
 
+/**
+ * PUT /api/admin/courses/:id - Update course details
+ * Can update: title, description, start_date, end_date, status
+ */
+router.put(
+  "/courses/:id",
+  auth,
+  requireRole("admin"),
+  adminCtrl.updateCourseAsAdmin,
+);
+
+/**
+ * DELETE /api/admin/courses/:id - Delete a course
+ * Deletes the course and all related enrollments/sessions
+ */
+router.delete(
+  "/courses/:id",
+  auth,
+  requireRole("admin"),
+  adminCtrl.deleteCourseAsAdmin,
+);
+
+/**
+ * POST /api/admin/check-faculty-conflicts - Check for schedule conflicts
+ * Returns list of courses that conflict with given date range for faculty
+ */
+router.post(
+  "/check-faculty-conflicts",
+  auth,
+  requireRole("admin"),
+  adminCtrl.checkFacultyConflicts,
+);
+
 module.exports = router;

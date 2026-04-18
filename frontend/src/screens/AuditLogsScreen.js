@@ -42,6 +42,50 @@ const ACTION_META = {
 };
 
 const ENTITY_META = {
+  // ── Attendance App Entities ──
+  ATTENDANCE: {
+    icon: "checkmark-circle-outline",
+    color: "#4CAF50",
+    bg: "#E8F5E9",
+    label: "Attendance",
+  },
+  LEAVE_REQUEST: {
+    icon: "document-text-outline",
+    color: "#FF9800",
+    bg: "#FFF3E0",
+    label: "Leave Request",
+  },
+  COURSE_SESSION: {
+    icon: "time-outline",
+    color: "#2196F3",
+    bg: "#E3F2FD",
+    label: "Course Session",
+  },
+  COURSE: {
+    icon: "book-outline",
+    color: "#1976D2",
+    bg: "#E8EAF6",
+    label: "Course",
+  },
+  STUDENT_ENROLLMENT: {
+    icon: "person-add-outline",
+    color: "#9C27B0",
+    bg: "#F3E5F5",
+    label: "Student Enrollment",
+  },
+  ACTIVITY: {
+    icon: "calendar-outline",
+    color: "#7d53f6",
+    bg: "#F0E6FF",
+    label: "Activity",
+  },
+  USER: {
+    icon: "person-outline",
+    color: "#FF5722",
+    bg: "#FBE9E7",
+    label: "User",
+  },
+  // ── Legacy/Admin Entities ──
   INFRASTRUCTURE: {
     icon: "hardware-chip-outline",
     color: "#00897B",
@@ -89,6 +133,13 @@ const DEFAULT_ENTITY = {
 
 const ENTITY_TYPES = [
   "ALL",
+  "ATTENDANCE",
+  "LEAVE_REQUEST",
+  "COURSE_SESSION",
+  "COURSE",
+  "STUDENT_ENROLLMENT",
+  "ACTIVITY",
+  "USER",
   "INFRASTRUCTURE",
   "CATEGORY",
   "SUBCATEGORY",
@@ -458,6 +509,8 @@ const AuditLogsScreen = ({ navigation }) => {
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.chipScroll}
+          scrollEnabled={true}
+          directionalLockEnabled={false}
         >
           {ENTITY_TYPES.map((opt) => {
             const active = entityFilter === opt;
@@ -470,9 +523,15 @@ const AuditLogsScreen = ({ navigation }) => {
                   active && {
                     backgroundColor: em2?.color || "#7d53f6",
                     borderColor: em2?.color || "#7d53f6",
+                    elevation: 4,
+                    shadowColor: em2?.color || "#7d53f6",
+                    shadowOpacity: 0.3,
+                    shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 2 },
                   },
                 ]}
                 onPress={() => setEntityFilter(opt)}
+                activeOpacity={0.6}
               >
                 {em2 && (
                   <Ionicons
@@ -495,7 +554,13 @@ const AuditLogsScreen = ({ navigation }) => {
 
       <View style={styles.filterSection}>
         <Text style={styles.filterLabel}>ACTION</Text>
-        <View style={styles.actionChipRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipScroll}
+          scrollEnabled={true}
+          directionalLockEnabled={false}
+        >
           {ACTIONS.map((opt) => {
             const active = actionFilter === opt;
             const am2 = ACTION_META[opt];
@@ -507,9 +572,15 @@ const AuditLogsScreen = ({ navigation }) => {
                   active && {
                     backgroundColor: am2?.color || "#7d53f6",
                     borderColor: am2?.color || "#7d53f6",
+                    elevation: 4,
+                    shadowColor: am2?.color || "#7d53f6",
+                    shadowOpacity: 0.3,
+                    shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 2 },
                   },
                 ]}
                 onPress={() => setActionFilter(opt)}
+                activeOpacity={0.6}
               >
                 {am2 && (
                   <View
@@ -530,7 +601,7 @@ const AuditLogsScreen = ({ navigation }) => {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
       </View>
 
       {!loading && (
@@ -681,7 +752,6 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, fontWeight: "600", color: "#666" },
   chipTextActive: { color: "#fff", fontWeight: "700" },
-  actionChipRow: { flexDirection: "row", paddingLeft: 14, gap: 8 },
   actionChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -689,6 +759,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     backgroundColor: "#fff",
+    marginRight: 8,
     borderWidth: 1.5,
     borderColor: "#E5E5E5",
   },

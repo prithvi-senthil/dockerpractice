@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import { useAuth } from "../../context/AuthContext";
@@ -29,6 +31,10 @@ const SettingsScreen = () => {
   const [workingEndTime, setWorkingEndTime] = useState("17:00");
   const [workingHoursLoading, setWorkingHoursLoading] = useState(false);
   const [workingHoursSaving, setWorkingHoursSaving] = useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const [tempStartTime, setTempStartTime] = useState(new Date());
+  const [tempEndTime, setTempEndTime] = useState(new Date());
 
   // Check if user is admin
   const isAdmin = user?.user_type === "admin";
@@ -145,6 +151,50 @@ const SettingsScreen = () => {
     }
   };
 
+  const parseTimeString = (timeStr) => {
+    const [hours, minutes] = timeStr.split(":").map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  const formatTimeFromDate = (date) => {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  };
+
+  const formatTimeDisplay = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
+  const handleStartTimeChange = (event, selectedDate) => {
+    if (Platform.OS === "android") {
+      setShowStartTimePicker(false);
+    }
+    if (selectedDate) {
+      setTempStartTime(selectedDate);
+      setWorkingStartTime(formatTimeFromDate(selectedDate));
+    }
+  };
+
+  const handleEndTimeChange = (event, selectedDate) => {
+    if (Platform.OS === "android") {
+      setShowEndTimePicker(false);
+    }
+    if (selectedDate) {
+      setTempEndTime(selectedDate);
+      setWorkingEndTime(formatTimeFromDate(selectedDate));
+    }
+  };
+
   const handleSaveWorkingHours = async () => {
     try {
       console.log("💾 SAVING Working Hours - Current state:");
@@ -162,7 +212,7 @@ const SettingsScreen = () => {
       if (!timeRegex.test(workingStartTime)) {
         Alert.alert(
           "Error",
-          "Invalid start time format. Use HH:MM (e.g., 08:00)",
+          "Invalid start time format. Use HH:MM (e.g., 8:00 AM)",
         );
         return;
       }
@@ -170,7 +220,7 @@ const SettingsScreen = () => {
       if (!timeRegex.test(workingEndTime)) {
         Alert.alert(
           "Error",
-          "Invalid end time format. Use HH:MM (e.g., 17:00)",
+          "Invalid end time format. Use HH:MM (e.g., 5:00 PM)",
         );
         return;
       }
@@ -203,7 +253,7 @@ const SettingsScreen = () => {
       Alert.alert(
         "Success",
         workingHoursEnabled
-          ? `Working hours set to ${workingStartTime} - ${workingEndTime}`
+          ? `Working hours set to ${formatTimeDisplay(workingStartTime)} - ${formatTimeDisplay(workingEndTime)}`
           : "Working hour restrictions disabled",
         [{ text: "OK" }],
       );
@@ -362,16 +412,18 @@ const SettingsScreen = () => {
                 <View style={styles.timeRow}>
                   <View style={styles.timeInputGroup}>
                     <Text style={styles.timeLabel}>Work Start Time</Text>
-                    <View style={styles.timeInputWrapper}>
-                      <Ionicons name="time-outline" size={20} color="#666" />
-                      <TextInput
-                        style={styles.timeInput}
-                        value={workingStartTime}
-                        onChangeText={setWorkingStartTime}
-                        placeholder="08:00"
-                        maxLength={5}
-                      />
-                    </View>
+                    <TouchableOpacity
+                      style={styles.timePickerButton}
+                      onPress={() => {
+                        setTempStartTime(parseTimeString(workingStartTime));
+                        setShowStartTimePicker(true);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={20} color="#7d53f6" />
+                      <Text style={styles.timePickerButtonText}>
+                        {formatTimeDisplay(workingStartTime)}
+                      </Text>
+                    </TouchableOpacity>
                     <Text style={styles.timeHint}>
                       Sessions cannot start before this time
                     </Text>
@@ -379,21 +431,41 @@ const SettingsScreen = () => {
 
                   <View style={styles.timeInputGroup}>
                     <Text style={styles.timeLabel}>Work End Time</Text>
-                    <View style={styles.timeInputWrapper}>
-                      <Ionicons name="time-outline" size={20} color="#666" />
-                      <TextInput
-                        style={styles.timeInput}
-                        value={workingEndTime}
-                        onChangeText={setWorkingEndTime}
-                        placeholder="17:00"
-                        maxLength={5}
-                      />
-                    </View>
+                    <TouchableOpacity
+                      style={styles.timePickerButton}
+                      onPress={() => {
+                        setTempEndTime(parseTimeString(workingEndTime));
+                        setShowEndTimePicker(true);
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={20} color="#7d53f6" />
+                      <Text style={styles.timePickerButtonText}>
+                        {formatTimeDisplay(workingEndTime)}
+                      </Text>
+                    </TouchableOpacity>
                     <Text style={styles.timeHint}>
                       Sessions cannot end after this time
                     </Text>
                   </View>
                 </View>
+
+                {showStartTimePicker && (
+                  <DateTimePicker
+                    value={tempStartTime}
+                    mode="time"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={handleStartTimeChange}
+                  />
+                )}
+
+                {showEndTimePicker && (
+                  <DateTimePicker
+                    value={tempEndTime}
+                    mode="time"
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    onChange={handleEndTimeChange}
+                  />
+                )}
 
                 <View style={styles.infoBox}>
                   <Ionicons
@@ -403,7 +475,7 @@ const SettingsScreen = () => {
                   />
                   <Text style={styles.infoText}>
                     Sessions scheduled outside working hours will be rejected.
-                    For example: 08:00 to 17:00 means sessions cannot be
+                    For example: 8:00 AM to 5:00 PM means sessions cannot be
                     scheduled before 8 AM or after 5 PM.
                   </Text>
                 </View>
@@ -641,6 +713,24 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     marginTop: 4,
     fontStyle: "italic",
+  },
+  timePickerButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#7d53f6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#f3e8ff",
+    marginTop: 8,
+  },
+  timePickerButtonText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
+    color: "#7d53f6",
   },
   infoBox: {
     flexDirection: "row",

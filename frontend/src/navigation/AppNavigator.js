@@ -29,6 +29,8 @@ import UserManagementScreen from "../screens/UserManagementScreen";
 import CourseDetailsScreen from "../screens/CourseDetailsScreen";
 import NotificationIcon from "../components/NotificationIcon";
 import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
+import AdminCoursesScreen from "../screens/admin/AdminCoursesScreen";
+import AdminCourseDetailScreen from "../screens/admin/AdminCourseDetailScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -406,6 +408,25 @@ const AppStack = () => {
           headerStyle: { backgroundColor: "#fff" },
           headerTintColor: "#7d53f6",
           headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminCourses"
+        component={AdminCoursesScreen}
+        options={{
+          title: "Manage Courses",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminCourseDetail"
+        component={AdminCourseDetailScreen}
+        options={{
+          headerShown: false,
         }}
       />
 

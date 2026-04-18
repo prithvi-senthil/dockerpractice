@@ -473,9 +473,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 6,
     borderWidth: 1,
+    minHeight: 40,
   },
   editBtn: {
     borderColor: "#7d53f6",
@@ -483,9 +485,9 @@ const styles = StyleSheet.create({
   },
   editBtnText: {
     color: "#7d53f6",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 13,
-    marginLeft: 5,
+    marginLeft: 6,
   },
   deleteBtn: {
     borderColor: "#EF4444",
@@ -493,9 +495,9 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: {
     color: "#EF4444",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 13,
-    marginLeft: 5,
+    marginLeft: 6,
   },
   modalOverlay: {
     flex: 1,

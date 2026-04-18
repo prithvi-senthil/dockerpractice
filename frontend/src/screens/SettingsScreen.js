@@ -25,9 +25,20 @@ const SettingsScreen = () => {
   // Working hours setting state
   const [workingHoursEnabled, setWorkingHoursEnabled] = useState(true);
   const [workingStartTime, setWorkingStartTime] = useState("08:00");
-  const [workingEndTime, setWorkingEndTime] = useState("17:00");
+  const [workingEndTime, setWorkingEndTime] = useState("5:00");
   const [workingHoursLoading, setWorkingHoursLoading] = useState(false);
   const [workingHoursSaving, setWorkingHoursSaving] = useState(false);
+
+  const formatTimeDisplay = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
 
   // Check if user is admin
   const isAdmin = user?.user_type === "admin";
@@ -62,14 +73,14 @@ const SettingsScreen = () => {
       if (response.data) {
         setWorkingHoursEnabled(response.data.enabled ?? true);
         setWorkingStartTime(response.data.start_time || "08:00");
-        setWorkingEndTime(response.data.end_time || "17:00");
+        setWorkingEndTime(response.data.end_time || "5:00");
       }
     } catch (error) {
       console.error("Fetch working hours error:", error);
       // Use defaults
       setWorkingHoursEnabled(true);
       setWorkingStartTime("08:00");
-      setWorkingEndTime("17:00");
+      setWorkingEndTime("5:00");
     } finally {
       setWorkingHoursLoading(false);
     }
@@ -109,7 +120,7 @@ const SettingsScreen = () => {
       if (!timeRegex.test(workingStartTime)) {
         Alert.alert(
           "Error",
-          "Invalid start time format. Use HH:MM (e.g., 08:00)",
+          "Invalid start time format. Use HH:MM (e.g., 8:00 AM)",
         );
         return;
       }
@@ -117,7 +128,7 @@ const SettingsScreen = () => {
       if (!timeRegex.test(workingEndTime)) {
         Alert.alert(
           "Error",
-          "Invalid end time format. Use HH:MM (e.g., 17:00)",
+          "Invalid end time format. Use HH:MM (e.g., 5:00 PM)",
         );
         return;
       }
@@ -138,7 +149,7 @@ const SettingsScreen = () => {
       Alert.alert(
         "Success",
         workingHoursEnabled
-          ? `Working hours set to ${workingStartTime} - ${workingEndTime}`
+          ? `Working hours set to ${formatTimeDisplay(workingStartTime)} - ${formatTimeDisplay(workingEndTime)}`
           : "Working hour restrictions disabled",
         [{ text: "OK" }],
       );
@@ -303,12 +314,13 @@ const SettingsScreen = () => {
                         style={styles.timeInput}
                         value={workingStartTime}
                         onChangeText={setWorkingStartTime}
-                        placeholder="08:00"
+                        placeholder="8:00 AM"
                         maxLength={5}
                       />
                     </View>
                     <Text style={styles.timeHint}>
-                      Sessions cannot start before this time
+                      {formatTimeDisplay(workingStartTime)} - Sessions cannot
+                      start before this time
                     </Text>
                   </View>
 
@@ -320,12 +332,13 @@ const SettingsScreen = () => {
                         style={styles.timeInput}
                         value={workingEndTime}
                         onChangeText={setWorkingEndTime}
-                        placeholder="17:00"
+                        placeholder="5:00 PM"
                         maxLength={5}
                       />
                     </View>
                     <Text style={styles.timeHint}>
-                      Sessions cannot end after this time
+                      {formatTimeDisplay(workingEndTime)} - Sessions cannot end
+                      after this time
                     </Text>
                   </View>
                 </View>
@@ -338,7 +351,7 @@ const SettingsScreen = () => {
                   />
                   <Text style={styles.infoText}>
                     Sessions scheduled outside working hours will be rejected.
-                    For example: 08:00 to 17:00 means sessions cannot be
+                    For example: 8:00 AM to 5:00 PM means sessions cannot be
                     scheduled before 8 AM or after 5 PM.
                   </Text>
                 </View>

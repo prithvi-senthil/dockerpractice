@@ -54,6 +54,17 @@ const DashboardScreen = ({ navigation }) => {
     }
   };
 
+  const formatTime = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
   useFocusEffect(
     React.useCallback(() => {
       console.log("📊 Dashboard focused - refreshing data");
@@ -321,7 +332,8 @@ const DashboardScreen = ({ navigation }) => {
                 <View style={styles.sessionTime}>
                   <Ionicons name="time-outline" size={20} color="#7d53f6" />
                   <Text style={styles.sessionTimeText}>
-                    {session.start_time} - {session.end_time}
+                    {formatTime(session.start_time)} -{" "}
+                    {formatTime(session.end_time)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -564,15 +576,15 @@ const DashboardScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
-                onPress={() => handleAdminNavigation("CreateCourse")}
+                onPress={() => navigation.navigate("AdminCourses")}
               >
                 <View
                   style={[styles.adminIcon, { backgroundColor: "#E3F2FD" }]}
                 >
                   <Ionicons name="book-outline" size={24} color="#1976D2" />
                 </View>
-                <Text style={styles.adminLabel}>Create Course</Text>
-                <Text style={styles.adminDesc}>New courses</Text>
+                <Text style={styles.adminLabel}>Manage Courses</Text>
+                <Text style={styles.adminDesc}>View & approve</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
@@ -585,7 +597,7 @@ const DashboardScreen = ({ navigation }) => {
                 </View>
                 <Text style={styles.adminLabel}>Assign Course</Text>
                 <Text style={styles.adminDesc}>To faculty</Text>
-              </TouchableOpacity>{" "}
+              </TouchableOpacity>
             </View>
           </View>
         )}

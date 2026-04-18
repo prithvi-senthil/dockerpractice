@@ -76,6 +76,17 @@ const StudentEnrollmentScreen = ({ navigation, route }) => {
     setRefreshing(false);
   };
 
+  const formatTime = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
   const openEnrollModal = (course) => {
     setSelectedCourse(course);
     setSelectedStudents([]);
@@ -150,7 +161,8 @@ const StudentEnrollmentScreen = ({ navigation, route }) => {
           <View style={styles.detailRow}>
             <Ionicons name="time" size={16} color="#7d53f6" />
             <Text style={styles.detailText}>
-              {item.time_slot_start} - {item.time_slot_end}
+              {formatTime(item.time_slot_start)} -{" "}
+              {formatTime(item.time_slot_end)}
             </Text>
           </View>
           <View style={styles.detailRow}>

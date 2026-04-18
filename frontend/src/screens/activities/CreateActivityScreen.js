@@ -119,9 +119,17 @@ const CreateActivityScreen = ({ navigation }) => {
   };
 
   const formatTime = (date) => {
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
+  const formatTimeForAPI = (date) => {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${hours}:${minutes}`;
+    return `${hours}:${minutes}:00`;
   };
 
   const formatDate = (date) => {
@@ -175,8 +183,8 @@ const CreateActivityScreen = ({ navigation }) => {
         max_students: parseInt(maxStudents) || 60,
         assigned_faculty_id: parseInt(assignedFacultyId),
         schedule_days: selectedDays.join(","),
-        time_slot_start: formatTime(startTime),
-        time_slot_end: formatTime(endTime),
+        time_slot_start: formatTimeForAPI(startTime),
+        time_slot_end: formatTimeForAPI(endTime),
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
       };
@@ -235,8 +243,8 @@ const CreateActivityScreen = ({ navigation }) => {
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
         schedule_days: selectedDays.join(","),
-        time_slot_start: formatTime(startTime),
-        time_slot_end: formatTime(endTime),
+        time_slot_start: formatTimeForAPI(startTime),
+        time_slot_end: formatTimeForAPI(endTime),
         course_title: title.trim(),
       };
 
