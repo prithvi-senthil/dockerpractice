@@ -196,10 +196,15 @@ const CourseDetailsScreen = ({ route, navigation }) => {
   };
 
   const isFaculty = user?.user_type === "faculty";
-  const isAssignedFaculty = course && faculty && faculty.id === currentUserId;
+  const isAssignedFaculty =
+    course?.assigned_faculty_id === currentUserId ||
+    course?.faculty_id === currentUserId;
   const isCreator = course?.created_by === currentUserId;
   const canAcceptReject =
-    isAssignedFaculty && course?.assignment_status === "pending" && !isCreator;
+    isFaculty &&
+    isAssignedFaculty &&
+    course?.assignment_status === "pending" &&
+    !isCreator;
 
   if (loading) {
     return (

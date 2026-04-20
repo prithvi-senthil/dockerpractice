@@ -8,8 +8,11 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  Modal,
   TextInput,
+  Modal,
+  ScrollView,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import Ionicons from "react-native-vector-icons/Ionicons";
@@ -18,21 +21,21 @@ import API from "../services/api";
 const UserManagementScreen = () => {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("all");
 
-  // Modal states
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [newPriority, setNewPriority] = useState("3");
-
-  const PRIORITY_LEVELS = {
-    1: { label: "Admin (Priority 1)", badge: "ADMIN", color: "#EF4444" },
-    2: { label: "Manager (Priority 2)", badge: "MANAGER", color: "#F59E0B" },
-    3: { label: "User (Priority 3)", badge: "USER", color: "#10B981" },
-  };
+  // Add User Modal States
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addingUser, setAddingUser] = useState(false);
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    user_type: "student",
+    department: "",
+  });
 
   const USER_TYPES = {
     admin: "Admin",
@@ -42,6 +45,7 @@ const UserManagementScreen = () => {
 
   useEffect(() => {
     fetchUsers();
+    fetchDepartments();
   }, []);
 
   useEffect(() => {
@@ -51,37 +55,55 @@ const UserManagementScreen = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      // Assuming there's an endpoint to get all users
-      const response = await API.get("/auth/users");
-      setUsers(response.data.users || []);
+      const response = await API.get("/admin/users");
+      const allUsers = [];
+      const userData = response.data.users_by_role || {};
+
+      Object.keys(userData).forEach((role) => {
+        const roleUsers = userData[role]?.users || [];
+        allUsers.push(...roleUsers.map((u) => ({ ...u, role })));
+      });
+
+      setUsers(allUsers);
     } catch (error) {
       console.error("Fetch users error:", error);
-      // For now, set mock users if endpoint doesn't exist
       setUsers([
         {
           id: 1,
           name: "John Doe",
           email: "john@example.com",
           user_type: "admin",
-          priority_level: 1,
+          department: "Administration",
+          role: "admin",
         },
         {
           id: 2,
           name: "Jane Smith",
           email: "jane@example.com",
           user_type: "faculty",
-          priority_level: 2,
+          department: "Science",
+          role: "faculty",
         },
         {
           id: 3,
           name: "Bob Johnson",
           email: "bob@example.com",
           user_type: "student",
-          priority_level: 3,
+          department: null,
+          role: "student",
         },
       ]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDepartments = async () => {
+    try {
+      const response = await API.get("/departments");
+      setDepartments(response.data.departments || response.data.data || []);
+    } catch (error) {
+      console.error("Fetch departments error:", error);
     }
   };
 
@@ -94,151 +116,125 @@ const UserManagementScreen = () => {
   const filterUsers = () => {
     let filtered = users;
 
-    // Filter by search text
     if (searchText.trim()) {
       filtered = filtered.filter(
         (user) =>
-          user.name.toLowerCase().includes(searchText.toLowerCase()) ||
-          user.email.toLowerCase().includes(searchText.toLowerCase()),
+          user.name?.toLowerCase().includes(searchText.toLowerCase()) ||
+          user.email?.toLowerCase().includes(searchText.toLowerCase()),
       );
     }
 
-    // Filter by priority level
     if (selectedFilter !== "all") {
-      filtered = filtered.filter(
-        (user) => user.priority_level === parseInt(selectedFilter),
-      );
+      filtered = filtered.filter((u) => u.user_type === selectedFilter);
     }
 
     setFilteredUsers(filtered);
   };
 
-  const handleEditPriority = (user) => {
-    setSelectedUser(user);
-    setNewPriority(user.priority_level?.toString() || "3");
-    setEditModalVisible(true);
-  };
-
-  const handleSavePriority = async () => {
-    if (!selectedUser) return;
+  const handleAddUser = async () => {
+    if (!formData.name.trim() || !formData.email.trim()) {
+      Alert.alert("Error", "Name and email are required");
+      return;
+    }
 
     try {
-      const priority = parseInt(newPriority);
-      // Assuming there's an endpoint to update user priority
-      await API.put(`/auth/users/${selectedUser.id}/priority`, {
-        priority_level: priority,
-      });
+      setAddingUser(true);
+      const payload = {
+        name: formData.name,
+        email: formData.email,
+        user_type: formData.user_type,
+        ...(formData.user_type !== "student" && {
+          department: formData.department,
+        }),
+      };
 
-      Alert.alert("Success", "User priority updated successfully");
-      setEditModalVisible(false);
-      await fetchUsers();
+      await API.post("/admin/users", payload);
+      Alert.alert("Success", "User created successfully");
+      setShowAddModal(false);
+      setFormData({ name: "", email: "", user_type: "student", department: "" });
+      fetchUsers();
     } catch (error) {
-      console.error("Update priority error:", error);
-      // Optimistically update local state
-      const updatedUsers = users.map((u) =>
-        u.id === selectedUser.id
-          ? { ...u, priority_level: parseInt(newPriority) }
-          : u,
-      );
-      setUsers(updatedUsers);
-      Alert.alert("Success", "User priority updated");
-      setEditModalVisible(false);
+      console.error("Add user error:", error);
+      Alert.alert("Error", error.response?.data?.error || "Failed to add user");
+    } finally {
+      setAddingUser(false);
     }
-  };
-
-  const getPriorityColor = (priority) => {
-    return PRIORITY_LEVELS[priority]?.color || "#999";
   };
 
   const renderUserItem = ({ item }) => (
     <View style={styles.userCard}>
       <View style={styles.userHeader}>
-        <View style={styles.avatarContainer}>
-          <View
-            style={[
-              styles.avatar,
-              { backgroundColor: getPriorityColor(item.priority_level) },
-            ]}
-          >
-            <Text style={styles.avatarText}>
-              {item.name?.charAt(0).toUpperCase()}
-            </Text>
+        <View style={styles.avatarSection}>
+          <View style={[styles.avatar, { backgroundColor: getUserColor(item.user_type) }]}>
+            <Text style={styles.avatarText}>{item.name?.charAt(0).toUpperCase()}</Text>
           </View>
-          <View style={styles.userBasicInfo}>
+          <View style={styles.userInfo}>
             <Text style={styles.userName}>{item.name}</Text>
             <Text style={styles.userEmail}>{item.email}</Text>
           </View>
         </View>
-        <TouchableOpacity
-          style={styles.editIconBtn}
-          onPress={() => handleEditPriority(item)}
-        >
-          <Ionicons name="create" size={18} color="#7d53f6" />
-        </TouchableOpacity>
       </View>
 
-      <View style={styles.userDetails}>
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>User Type:</Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
+      <View style={styles.userMeta}>
+        <View style={styles.metaItem}>
+          <Text style={styles.metaLabel}>Type:</Text>
+          <View style={[styles.typeBadge, { backgroundColor: getUserColor(item.user_type) + "20" }]}>
+            <Text style={[styles.typeBadgeText, { color: getUserColor(item.user_type) }]}>
               {USER_TYPES[item.user_type] || item.user_type}
             </Text>
           </View>
         </View>
-
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Priority:</Text>
-          <View
-            style={[
-              styles.priorityBadge,
-              { backgroundColor: getPriorityColor(item.priority_level) + "20" },
-            ]}
-          >
-            <Text
-              style={[
-                styles.priorityText,
-                { color: getPriorityColor(item.priority_level) },
-              ]}
-            >
-              {PRIORITY_LEVELS[item.priority_level]?.badge || "UNKNOWN"}
-            </Text>
+        {item.department && (
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>Department:</Text>
+            <Text style={styles.metaValue}>{item.department}</Text>
           </View>
-        </View>
-
-        <View style={styles.detailItem}>
-          <Text style={styles.detailLabel}>Status:</Text>
-          <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: "#10B981" }]} />
-            <Text style={styles.statusText}>Active</Text>
-          </View>
-        </View>
+        )}
       </View>
     </View>
   );
 
-  if (loading && !refreshing && users.length === 0) {
+  const getUserColor = (userType) => {
+    const colors = {
+      admin: "#EF4444",
+      faculty: "#F59E0B",
+      student: "#10B981",
+    };
+    return colors[userType] || "#6B7280";
+  };
+
+  if (loading && users.length === 0) {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#7d53f6" />
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>User Management</Text>
-        <Text style={styles.headerSubtitle}>
-          {filteredUsers.length} of {users.length} users
-        </Text>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* Professional Header */}
+      <View style={styles.headerSection}>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={styles.headerTitle}>Users</Text>
+            <Text style={styles.headerSubtitle}>
+              Manage all users and their roles
+            </Text>
+          </View>
+          <View style={styles.userCountBadge}>
+            <Text style={styles.userCountText}>{users.length}</Text>
+          </View>
+        </View>
       </View>
 
-      {/* Search and Filter */}
-      <View style={styles.searchContainer}>
+      {/* Search Bar */}
+      <View style={styles.searchBarSection}>
         <View style={styles.searchInputContainer}>
           <Ionicons name="search" size={18} color="#999" />
           <TextInput
@@ -256,86 +252,62 @@ const UserManagementScreen = () => {
         </View>
       </View>
 
-      {/* Priority Filter Tabs */}
-      <View style={styles.filterTabs}>
-        <TouchableOpacity
-          style={[
-            styles.filterTab,
-            selectedFilter === "all" && styles.filterTabActive,
-          ]}
-          onPress={() => setSelectedFilter("all")}
+      {/* Filter Tabs */}
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>USER TYPE</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterTabs}
         >
-          <Text
+          <TouchableOpacity
             style={[
-              styles.filterTabText,
-              selectedFilter === "all" && styles.filterTabTextActive,
+              styles.filterChip,
+              selectedFilter === "all" && styles.filterChipActive,
             ]}
+            onPress={() => setSelectedFilter("all")}
           >
-            All ({users.length})
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.filterChipText,
+                selectedFilter === "all" && styles.filterChipTextActive,
+              ]}
+            >
+              All ({users.length})
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.filterTab,
-            selectedFilter === "1" && styles.filterTabActive,
-          ]}
-          onPress={() => setSelectedFilter("1")}
-        >
-          <Text
-            style={[
-              styles.filterTabText,
-              selectedFilter === "1" && styles.filterTabTextActive,
-            ]}
-          >
-            Admin ({users.filter((u) => u.priority_level === 1).length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.filterTab,
-            selectedFilter === "2" && styles.filterTabActive,
-          ]}
-          onPress={() => setSelectedFilter("2")}
-        >
-          <Text
-            style={[
-              styles.filterTabText,
-              selectedFilter === "2" && styles.filterTabTextActive,
-            ]}
-          >
-            Manager ({users.filter((u) => u.priority_level === 2).length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.filterTab,
-            selectedFilter === "3" && styles.filterTabActive,
-          ]}
-          onPress={() => setSelectedFilter("3")}
-        >
-          <Text
-            style={[
-              styles.filterTabText,
-              selectedFilter === "3" && styles.filterTabTextActive,
-            ]}
-          >
-            User ({users.filter((u) => u.priority_level === 3).length})
-          </Text>
-        </TouchableOpacity>
+          {Object.entries(USER_TYPES).map(([key, label]) => (
+            <TouchableOpacity
+              key={key}
+              style={[
+                styles.filterChip,
+                selectedFilter === key && styles.filterChipActive,
+              ]}
+              onPress={() => setSelectedFilter(key)}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  selectedFilter === key && styles.filterChipTextActive,
+                ]}
+              >
+                {label} ({users.filter((u) => u.user_type === key).length})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
-      {/* Users List */}
+      {/* User List */}
       {filteredUsers.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="people" size={48} color="#ccc" />
-          <Text style={styles.emptyText}>No users found</Text>
-          <Text style={styles.emptySubText}>
+        <View style={styles.emptyState}>
+          <Ionicons name="people" size={56} color="#DDD" />
+          <Text style={styles.emptyTitle}>No users found</Text>
+          <Text style={styles.emptySubtitle}>
             {searchText.trim()
-              ? "Try adjusting your search"
-              : "Add users to get started"}
+              ? "Try adjusting your search criteria"
+              : "Start by adding a new user"}
           </Text>
         </View>
       ) : (
@@ -355,216 +327,280 @@ const UserManagementScreen = () => {
         />
       )}
 
-      {/* Edit Priority Modal */}
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setShowAddModal(true)}
+        activeOpacity={0.85}
+      >
+        <View style={styles.fabIcon}>
+          <Ionicons name="person-add" size={24} color="#fff" />
+        </View>
+      </TouchableOpacity>
+
+      {/* Add User Modal */}
       <Modal
         animationType="slide"
         transparent={true}
-        visible={editModalVisible}
-        onRequestClose={() => setEditModalVisible(false)}
+        visible={showAddModal}
+        onRequestClose={() => setShowAddModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Change Priority Level</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+        <SafeAreaView style={styles.modalContainer}>
+          <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Add New User</Text>
+            <TouchableOpacity onPress={() => setShowAddModal(false)}>
+              <Ionicons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Name Field */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Full Name *</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="John Doe"
+                value={formData.name}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, name: text })
+                }
+                placeholderTextColor="#CCC"
+              />
             </View>
 
-            {selectedUser && (
-              <View style={styles.userInfo}>
-                <View
-                  style={[
-                    styles.largeAvatar,
-                    {
-                      backgroundColor: getPriorityColor(
-                        selectedUser.priority_level,
-                      ),
-                    },
-                  ]}
+            {/* Email Field */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Email Address *</Text>
+              <TextInput
+                style={styles.formInput}
+                placeholder="john@example.com"
+                value={formData.email}
+                onChangeText={(text) =>
+                  setFormData({ ...formData, email: text })
+                }
+                keyboardType="email-address"
+                placeholderTextColor="#CCC"
+              />
+              <Text style={styles.formHelper}>A confirmation email will be sent</Text>
+            </View>
+
+            {/* User Type */}
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>User Type *</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={formData.user_type}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, user_type: value })
+                  }
+                  style={styles.picker}
                 >
-                  <Text style={styles.largeAvatarText}>
-                    {selectedUser.name?.charAt(0).toUpperCase()}
-                  </Text>
+                  <Picker.Item label="Student" value="student" />
+                  <Picker.Item label="Faculty" value="faculty" />
+                  <Picker.Item label="Admin" value="admin" />
+                </Picker>
+              </View>
+            </View>
+
+            {/* Department (for Faculty/Admin) */}
+            {(formData.user_type === "faculty" || formData.user_type === "admin") && (
+              <View style={styles.formGroup}>
+                <Text style={styles.formLabel}>Department *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={formData.department}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, department: value })
+                    }
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Select a department" value="" />
+                    {departments.map((dept) => (
+                      <Picker.Item key={dept.id} label={dept.name} value={dept.id} />
+                    ))}
+                  </Picker>
                 </View>
-                <Text style={styles.selectedUserName}>{selectedUser.name}</Text>
-                <Text style={styles.selectedUserEmail}>
-                  {selectedUser.email}
-                </Text>
               </View>
             )}
 
-            <View style={styles.formContainer}>
-              <Text style={styles.label}>Select Priority Level *</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={newPriority}
-                  onValueChange={setNewPriority}
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Admin (Priority 1)" value="1" />
-                  <Picker.Item label="Manager (Priority 2)" value="2" />
-                  <Picker.Item label="User (Priority 3)" value="3" />
-                </Picker>
-              </View>
+            <View style={styles.spacer} />
+          </ScrollView>
 
-              <View style={styles.priorityInfo}>
-                <Text style={styles.infoText}>
-                  {PRIORITY_LEVELS[parseInt(newPriority)]?.label}
-                </Text>
-                <Text style={styles.infoDesc}>
-                  {newPriority === "1"
-                    ? "Admin users have full access to all system features including infrastructure management, settings, and audit logs."
-                    : newPriority === "2"
-                      ? "Manager users have access to module-specific features and can view reports."
-                      : "Standard users have access to basic features."}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.formActions}>
-              <TouchableOpacity
-                style={[styles.formBtn, styles.cancelBtn]}
-                onPress={() => setEditModalVisible(false)}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.formBtn, styles.saveBtn]}
-                onPress={handleSavePriority}
-              >
-                <Text style={styles.saveBtnText}>Update Priority</Text>
-              </TouchableOpacity>
-            </View>
+          {/* Modal Actions */}
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.cancelButton]}
+              onPress={() => setShowAddModal(false)}
+              disabled={addingUser}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalButton, styles.addButton]}
+              onPress={handleAddUser}
+              disabled={addingUser}
+            >
+              {addingUser ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.addButtonText}>Add User</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f8f9fa",
   },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  header: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    backgroundColor: "#fff",
+
+  // Header Styles
+  headerSection: {
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#E8E8E8",
+  },
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#1a1a1a",
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: "#999",
+    fontSize: 13,
+    color: "#666",
     marginTop: 4,
+    fontWeight: "500",
   },
-  searchContainer: {
-    paddingHorizontal: 15,
+  userCountBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#7d53f6",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#7d53f6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  userCountText: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+  },
+
+  // Search Bar
+  searchBarSection: {
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    backgroundColor: "#ffffff",
   },
   searchInputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   searchInput: {
     flex: 1,
-    marginHorizontal: 8,
-    fontSize: 14,
+    marginLeft: 10,
+    fontSize: 15,
     color: "#333",
+  },
+
+  // Filter Section
+  filterSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E8E8E8",
+  },
+  filterLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 10,
   },
   filterTabs: {
     flexDirection: "row",
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
   },
-  filterTab: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     marginRight: 8,
     borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f0f0f0",
   },
-  filterTabActive: {
+  filterChipActive: {
     backgroundColor: "#7d53f6",
   },
-  filterTabText: {
+  filterChipText: {
     fontSize: 12,
     fontWeight: "600",
     color: "#666",
   },
-  filterTabTextActive: {
+  filterChipTextActive: {
     color: "#fff",
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingBottom: 50,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginTop: 12,
-  },
-  emptySubText: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 5,
-    textAlign: "center",
-  },
+
+  // User List
   usersList: {
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingBottom: 100,
   },
   userCard: {
-    backgroundColor: "#fff",
-    marginHorizontal: 15,
-    marginVertical: 8,
-    borderRadius: 10,
-    padding: 15,
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   userHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: 12,
   },
-  avatarContainer: {
+  avatarSection: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -574,202 +610,187 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
   },
-  userBasicInfo: {
+  userInfo: {
     flex: 1,
   },
   userName: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#333",
+    color: "#1a1a1a",
   },
   userEmail: {
-    fontSize: 12,
+    fontSize: 13,
     color: "#999",
     marginTop: 2,
   },
-  editIconBtn: {
-    padding: 8,
-    borderRadius: 6,
-    backgroundColor: "#f3e8ff",
-  },
-  userDetails: {
+  userMeta: {
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
     paddingTop: 12,
+    gap: 8,
   },
-  detailItem: {
+  metaItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
   },
-  detailLabel: {
+  metaLabel: {
     fontSize: 12,
+    fontWeight: "600",
     color: "#666",
+  },
+  typeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  typeBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  metaValue: {
+    fontSize: 12,
     fontWeight: "500",
+    color: "#333",
   },
-  badge: {
-    backgroundColor: "#f3e8ff",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#7d53f6",
-  },
-  priorityBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  priorityText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#D1FAE5",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#10B981",
-  },
-  modalOverlay: {
+
+  // Empty State
+  emptyState: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
   },
-  modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    paddingTop: 15,
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#333",
+    marginTop: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: "#999",
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
+  // FAB
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#7d53f6",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#7d53f6",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  fabIcon: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // Modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "#ffffff",
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#E8E8E8",
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1a1a1a",
   },
-  userInfo: {
-    alignItems: "center",
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
   },
-  largeAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
+  formGroup: {
+    marginBottom: 20,
   },
-  largeAvatarText: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  selectedUserName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#333",
-    marginBottom: 4,
-  },
-  selectedUserEmail: {
-    fontSize: 13,
-    color: "#999",
-  },
-  formContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-  },
-  label: {
+  formLabel: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 10,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 9,
+  },
+  formInput: {
+    backgroundColor: "#f8f9fa",
+    borderWidth: 1,
+    borderColor: "#E8E8E8",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: "#1a1a1a",
+  },
+  formHelper: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 6,
+    fontStyle: "italic",
   },
   pickerContainer: {
+    backgroundColor: "#f8f9fa",
     borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    marginBottom: 15,
+    borderColor: "#E8E8E8",
+    borderRadius: 10,
     overflow: "hidden",
   },
   picker: {
-    height: 44,
-    color: "#333",
+    height: 50,
   },
-  priorityInfo: {
-    backgroundColor: "#f3e8ff",
-    borderRadius: 8,
-    padding: 12,
+  spacer: {
+    height: 20,
   },
-  infoText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#7d53f6",
-    marginBottom: 6,
-  },
-  infoDesc: {
-    fontSize: 12,
-    color: "#666",
-    lineHeight: 18,
-  },
-  formActions: {
+
+  // Modal Actions
+  modalActions: {
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderTopWidth: 1,
-    borderTopColor: "#f0f0f0",
+    borderTopColor: "#E8E8E8",
   },
-  formBtn: {
+  modalButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
+    justifyContent: "center",
     alignItems: "center",
   },
-  cancelBtn: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    backgroundColor: "#fff",
+  cancelButton: {
+    backgroundColor: "#f0f0f0",
   },
-  cancelBtnText: {
-    color: "#333",
-    fontWeight: "600",
-    fontSize: 14,
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
-  saveBtn: {
+  addButton: {
     backgroundColor: "#7d53f6",
   },
-  saveBtnText: {
+  addButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
     color: "#fff",
-    fontWeight: "600",
-    fontSize: 14,
   },
 });
 

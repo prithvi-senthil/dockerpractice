@@ -12,12 +12,13 @@ import {
   FlatList,
   RefreshControl,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
-const AdminUsersPanel = () => {
+const AdminUsersPanel = ({ navigation, onClose }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -31,6 +32,7 @@ const AdminUsersPanel = () => {
     total_students: 0,
   });
   const [hods, setHods] = useState([]); // For dropdown in faculty form
+  const [departments, setDepartments] = useState([]); // For department dropdown
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -100,6 +102,15 @@ const AdminUsersPanel = () => {
       // Extract HODs for the dropdown
       if (roleUsers.hod?.users) {
         setHods(roleUsers.hod.users);
+      }
+
+      // Fetch all departments from API
+      try {
+        const deptResponse = await api.get("/departments");
+        const deptNames = deptResponse.data.map((dept) => dept.name);
+        setDepartments(deptNames);
+      } catch (error) {
+        console.log("Failed to fetch departments:", error);
       }
     } catch (error) {
       Alert.alert(
@@ -425,33 +436,106 @@ const AdminUsersPanel = () => {
     );
   }
 
+  const handleGoBack = () => {
+    if (onClose) {
+      onClose();
+    } else if (navigation?.goBack) {
+      navigation.goBack();
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      {/* Header with Stats */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>All Users</Text>
-        <Text style={styles.headerSubtitle}>
-          {filteredUsers.length} of {allUsers.length} users
-        </Text>
-        {/* Stats cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_hods}</Text>
-            <Text style={styles.statLabel}>HODs</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_faculty}</Text>
-            <Text style={styles.statLabel}>Faculty</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_students}</Text>
-            <Text style={styles.statLabel}>Students</Text>
+    <SafeAreaView style={styles.safeContainer}>
+      <View style={styles.container}>
+        {/* Modern Gradient Header */}
+        <View style={styles.modernHeader}>
+          <View style={[styles.gradientBackground, { backgroundColor: "#7d53f6" }]}>
+            <View style={styles.headerContent}>
+              <View style={styles.headerLeft}>
+                <TouchableOpacity
+                  onPress={handleGoBack}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={styles.backButton}
+                >
+                  <Ionicons name="arrow-back" size={24} color="#fff" />
+                </TouchableOpacity>
+                <View>
+                  <Text style={styles.headerTitle}>User Management</Text>
+                  <Text style={styles.headerSubtitle}>Manage all users</Text>
+                </View>
+              </View>
+              <View style={styles.userCountBadge}>
+                <Text style={styles.userCountNumber}>{allUsers.length}</Text>
+                <Text style={styles.userCountLabel}>Users</Text>
+              </View>
+            </View>
           </View>
         </View>
-      </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
+        {/* User Statistics Cards */}
+        <View style={styles.statsCardsContainer}>
+        {/* HOD Card */}
+        <View style={styles.statCardWrapper}>
+          <View style={[styles.statCardGradient, { backgroundColor: "#F5E6FF" }]}>
+            <View style={styles.statCardContent}>
+              <View
+                style={[styles.statIconCircle, { backgroundColor: "#D8A8E8" }]}
+              >
+                <Ionicons name="person" size={20} color="#fff" />
+              </View>
+              <View style={styles.statInfo}>
+                <Text style={styles.statCount}>{summary.total_hods}</Text>
+                <Text style={styles.statName}>HOD</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Faculty Card */}
+        <View style={styles.statCardWrapper}>
+          <View style={[styles.statCardGradient, { backgroundColor: "#F0E6FF" }]}>
+            <View style={styles.statCardContent}>
+              <View
+                style={[styles.statIconCircle, { backgroundColor: "#D0A8FF" }]}
+              >
+                <Ionicons name="briefcase" size={20} color="#fff" />
+              </View>
+              <View style={styles.statInfo}>
+                <Text style={styles.statCount}>{summary.total_faculty}</Text>
+                <Text style={styles.statName}>Faculty</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Students Card */}
+        <View style={styles.statCardWrapper}>
+          <View style={[styles.statCardGradient, { backgroundColor: "#EDE9FF" }]}>
+            <View style={styles.statCardContent}>
+              <View
+                style={[styles.statIconCircle, { backgroundColor: "#C8A0F0" }]}
+              >
+                <Ionicons name="school" size={20} color="#fff" />
+              </View>
+              <View style={styles.statInfo}>
+                <Text style={styles.statCount}>{summary.total_students}</Text>
+                <Text style={styles.statName}>Students</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+        </View>
+
+        {/* Add User Button Section */}
+        <View style={styles.addUserButtonSection}>
+        <TouchableOpacity style={styles.addUserMainBtn} onPress={handleAddUser}>
+          <Ionicons name="add-circle" size={20} color="#fff" />
+          <Text style={styles.addUserMainBtnText}>Add User</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
           <Ionicons name="search" size={18} color="#999" />
           <TextInput
@@ -466,11 +550,11 @@ const AdminUsersPanel = () => {
               <Ionicons name="close-circle" size={18} color="#999" />
             </TouchableOpacity>
           )}
+          </View>
         </View>
-      </View>
 
-      {/* Filter Chips */}
-      <View style={styles.filterContainer}>
+        {/* Filter Chips */}
+        <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[
             styles.filterChip,
@@ -537,11 +621,11 @@ const AdminUsersPanel = () => {
           >
             Student ({summary.total_students})
           </Text>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
+        </View>
 
-      {/* Users List */}
-      {filteredUsers.length === 0 ? (
+        {/* Users List */}
+        {filteredUsers.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="people" size={48} color="#ccc" />
           <Text style={styles.emptyText}>No users found</Text>
@@ -550,9 +634,9 @@ const AdminUsersPanel = () => {
               ? "Try adjusting your search"
               : "No users in this category"}
           </Text>
-        </View>
-      ) : (
-        <FlatList
+          </View>
+        ) : (
+          <FlatList
           data={filteredUsers}
           renderItem={renderUserCard}
           keyExtractor={(item) => item.id.toString()}
@@ -564,12 +648,12 @@ const AdminUsersPanel = () => {
             />
           }
           contentContainerStyle={styles.usersList}
-          scrollEnabled={true}
-        />
-      )}
+            scrollEnabled={true}
+          />
+        )}
 
-      {/* Add/Edit User Modal */}
-      <Modal
+        {/* Add/Edit User Modal */}
+        <Modal
         animationType="slide"
         transparent={true}
         visible={showAddModal}
@@ -585,6 +669,43 @@ const AdminUsersPanel = () => {
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
+
+            {/* User Info Display Section */}
+            {(editingUser && editingUser.name) || formData.name ? (
+              <View style={styles.userInfoDisplay}>
+                <View style={styles.roleIconContainer}>
+                  <View
+                    style={[
+                      styles.roleBadgeDisplay,
+                      {
+                        backgroundColor:
+                          USER_ROLE_COLORS[editingUser?.role || selectedRole],
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        editingUser?.role === "hod"
+                          ? "people"
+                          : editingUser?.role === "faculty"
+                            ? "person"
+                            : "school"
+                      }
+                      size={20}
+                      color="#fff"
+                    />
+                  </View>
+                </View>
+                <View style={styles.userInfoText}>
+                  <Text style={styles.userInfoName}>
+                    {formData.name || editingUser?.name || "New User"}
+                  </Text>
+                  <Text style={styles.userInfoRole}>
+                    {USER_ROLE_LABELS[editingUser?.role || selectedRole]}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
 
             <ScrollView style={styles.formContainer}>
               {/* Role Selector (only when creating new user) */}
@@ -632,11 +753,7 @@ const AdminUsersPanel = () => {
                     setFormData({ ...formData, email: text })
                   }
                   keyboardType="email-address"
-                  editable={!editingUser} // Email not editable when editing
                 />
-                {editingUser && (
-                  <Text style={styles.helperText}>Email cannot be changed</Text>
-                )}
               </View>
 
               {/* Department (for HOD and Faculty) */}
@@ -646,14 +763,20 @@ const AdminUsersPanel = () => {
                     {selectedRole === "hod" ? "Department *" : "Department"}
                   </Text>
                   {selectedRole === "hod" ? (
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g., Computer Science"
-                      value={formData.department}
-                      onChangeText={(text) =>
-                        setFormData({ ...formData, department: text })
-                      }
-                    />
+                    <View style={styles.pickerContainer}>
+                      <Picker
+                        selectedValue={formData.department}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, department: value })
+                        }
+                        style={styles.picker}
+                      >
+                        <Picker.Item label="Select Department..." value="" />
+                        {departments.map((dept) => (
+                          <Picker.Item key={dept} label={dept} value={dept} />
+                        ))}
+                      </Picker>
+                    </View>
                   ) : (
                     <View style={styles.input}>
                       <Text style={styles.departmentReadOnly}>
@@ -737,15 +860,20 @@ const AdminUsersPanel = () => {
         </View>
       </Modal>
 
-      {/* FAB - Add User Button */}
-      <TouchableOpacity style={styles.fab} onPress={handleAddUser}>
-        <Ionicons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
-    </View>
+        {/* FAB - Add User Button */}
+        <TouchableOpacity style={styles.fab} onPress={handleAddUser}>
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  safeContainer: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
@@ -772,54 +900,139 @@ const styles = StyleSheet.create({
     color: "#999",
     marginTop: 4,
   },
-  header: {
-    paddingHorizontal: 15,
+  modernHeader: {
+    overflow: "hidden",
+  },
+  gradientBackground: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.8)",
+    fontWeight: "500",
+  },
+  userCountBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  userCountNumber: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  userCountLabel: {
+    fontSize: 11,
+    color: "rgba(255, 255, 255, 0.8)",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  statsCardsContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+    backgroundColor: "#f5f5f5",
+    gap: 10,
+  },
+  statCardWrapper: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  statCardGradient: {
+    paddingHorizontal: 12,
+    paddingVertical: 16,
+  },
+  statCardContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  statIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  statInfo: {
+    flex: 1,
+  },
+  statCount: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#1a1a1a",
+  },
+  statName: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  addUserButtonSection: {
+    paddingHorizontal: 24,
     paddingVertical: 12,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 3,
-    marginBottom: 12,
-  },
-  statsContainer: {
+  addUserMainBtn: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginHorizontal: 3,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7d53f6",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
   },
-  statNumber: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#7d53f6",
-  },
-  statLabel: {
-    fontSize: 10,
-    color: "#999",
-    marginTop: 2,
+  addUserMainBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
   searchContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 6,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   searchInputContainer: {
     flexDirection: "row",
@@ -827,12 +1040,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    width: "100%",
   },
   searchInput: {
     flex: 1,
     marginHorizontal: 8,
-    fontSize: 14,
+    fontSize: 13,
     color: "#333",
   },
   filterContainer: {
@@ -1038,81 +1252,131 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#333",
   },
+  userInfoDisplay: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#f8f6ff",
+    marginBottom: 16,
+    gap: 12,
+  },
+  roleIconContainer: {
+    alignItems: "center",
+  },
+  roleBadgeDisplay: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  userInfoText: {
+    flex: 1,
+  },
+  userInfoName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 2,
+  },
+  userInfoRole: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#666",
+  },
   formContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
   },
   formGroup: {
-    marginBottom: 15,
+    marginBottom: 18,
   },
   label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderWidth: 1.5,
+    borderColor: "#e8e8e8",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     fontSize: 14,
     color: "#333",
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#fafafa",
+    fontWeight: "500",
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: "#ddd",
     borderRadius: 8,
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#fafafa",
     overflow: "hidden",
+    height: 44,
+    justifyContent: "center",
   },
   picker: {
     fontSize: 14,
     color: "#333",
+    fontWeight: "500",
   },
   departmentReadOnly: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     fontSize: 14,
-    color: "#999",
+    color: "#666",
+    fontWeight: "500",
   },
   helperText: {
-    fontSize: 11,
+    fontSize: 12,
     color: "#999",
-    marginTop: 4,
+    marginTop: 6,
+    fontWeight: "400",
     fontStyle: "italic",
   },
   formActions: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
   },
   formBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   cancelBtn: {
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f0f0f0",
   },
   cancelBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#333",
   },
   saveBtn: {
     backgroundColor: "#7d53f6",
   },
   saveBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#fff",
   },
 });

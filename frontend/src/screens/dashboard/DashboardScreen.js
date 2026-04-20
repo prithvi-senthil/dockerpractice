@@ -613,14 +613,7 @@ const DashboardScreen = ({ navigation }) => {
         onRequestClose={() => setShowAdminUsersModal(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowAdminUsersModal(false)}>
-              <Ionicons name="arrow-back" size={24} color="#333" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>User Management</Text>
-            <View style={{ width: 24 }} />
-          </View>
-          <AdminUsersPanel />
+          <AdminUsersPanel onClose={() => setShowAdminUsersModal(false)} />
         </View>
       </Modal>
     </View>

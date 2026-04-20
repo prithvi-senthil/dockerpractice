@@ -26,24 +26,45 @@ exports.getMyCoursesAsHOD = async (req, res) => {
   try {
     const hodId = req.user.id;
 
-    // Query ONLY courses where hod_id = current HOD's ID
+    // Query courses WHERE:
+    // 1. Created by this HOD (management view)
+    // 2. Assigned to this HOD as faculty (acceptance view)
+    // 3. Assigned to faculty under this HOD (oversight view)
     const [courses] = await db.query(
-      `SELECT c.*,
-              f.name as faculty_name,
-              f.email as faculty_email,
-              COUNT(DISTINCT ce.id) as enrolled_students
+      `SELECT c.id, c.title, c.course_code as code, c.description, c.start_date, c.end_date,
+              c.assignment_status, c.created_at, c.assigned_faculty_id,
+              c.department_id,
+              f.name as faculty_name, f.email as faculty_email,
+              d.name as department_name
        FROM courses c
        LEFT JOIN users f ON c.assigned_faculty_id = f.id
-       LEFT JOIN course_enrollments ce ON c.id = ce.course_id
-       WHERE c.hod_id = ?
-       GROUP BY c.id
+       LEFT JOIN departments d ON c.department_id = d.id
+       WHERE c.created_by = ?
+          OR c.assigned_faculty_id = ?
+          OR EXISTS (SELECT 1 FROM users u WHERE u.id = c.assigned_faculty_id AND u.report_to = ?)
        ORDER BY c.created_at DESC`,
-      [hodId],
+      [hodId, hodId, hodId],
+    );
+
+    // Get student enrollment counts for each course
+    const coursesWithEnrollments = await Promise.all(
+      courses.map(async (course) => {
+        const [enrollments] = await db.query(
+          `SELECT COUNT(DISTINCT ce.student_id) as enrolled_students
+           FROM course_enrollments ce
+           WHERE ce.course_id = ?`,
+          [course.id],
+        );
+        return {
+          ...course,
+          enrolled_students: enrollments[0]?.enrolled_students || 0,
+        };
+      }),
     );
 
     res.json({
-      courses,
-      total_courses: courses.length,
+      courses: coursesWithEnrollments,
+      total_courses: coursesWithEnrollments.length,
       department: `Your Department (HOD #${hodId})`,
     });
   } catch (error) {
@@ -64,6 +85,7 @@ exports.createCourseAsHOD = async (req, res) => {
       code,
       description,
       assigned_faculty_id,
+      department_id,
       start_date,
       end_date,
       schedule_days,
@@ -87,6 +109,21 @@ exports.createCourseAsHOD = async (req, res) => {
       });
     }
 
+    // Verify department if provided
+    let courseDepartmentId = department_id;
+    if (department_id) {
+      const [dept] = await db.query(
+        `SELECT id FROM departments WHERE id = ? AND hod_id = ?`,
+        [department_id, hodId],
+      );
+      if (!dept.length) {
+        return res.status(403).json({
+          error: "You are not the HOD of this department",
+        });
+      }
+      courseDepartmentId = dept[0].id;
+    }
+
     // CRITICAL: Verify faculty reports to THIS HOD (department isolation)
     const [faculty] = await db.query(
       `SELECT id, name FROM users WHERE id = ? AND report_to = ? AND user_type = 'faculty'`,
@@ -100,19 +137,19 @@ exports.createCourseAsHOD = async (req, res) => {
       });
     }
 
-    // Create course (PENDING approval from admin)
+    // Create course with HOD as creator
     const [result] = await db.query(
       `INSERT INTO courses 
-       (title, code, description, assigned_faculty_id, hod_id,
-        start_date, end_date, schedule_days, time_slot_start, time_slot_end,
-        approval_status, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, NOW())`,
+       (title, course_code, description, assigned_faculty_id,
+        department_id, start_date, end_date, schedule_days, time_slot_start, time_slot_end,
+        assignment_status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
       [
         title,
         code,
         description,
         assigned_faculty_id,
-        hodId,
+        courseDepartmentId || null,
         start_date,
         end_date,
         schedule_days || "Monday,Wednesday,Friday",
@@ -128,7 +165,7 @@ exports.createCourseAsHOD = async (req, res) => {
       "CREATE",
       "COURSE",
       result.insertId,
-      "HOD_CREATE_COURSE",
+      null,
       null,
       { title, code, faculty_name: faculty[0].name },
       `HOD created course: ${title} (awaiting admin approval)`,
@@ -137,7 +174,7 @@ exports.createCourseAsHOD = async (req, res) => {
     res.status(201).json({
       message: "Course created successfully (pending admin approval)",
       courseId: result.insertId,
-      status: "PENDING",
+      status: "pending",
       assigned_faculty: faculty[0].name,
       note: "Admin must approve this course before students can enroll",
     });
@@ -163,7 +200,7 @@ exports.assignFacultyToCourseasHOD = async (req, res) => {
 
     // CRITICAL: Verify course belongs to this HOD
     const [course] = await db.query(
-      `SELECT id, title FROM courses WHERE id = ? AND hod_id = ?`,
+      `SELECT id, title FROM courses WHERE id = ? AND created_by = ?`,
       [courseId, hodId],
     );
 
@@ -215,6 +252,173 @@ exports.assignFacultyToCourseasHOD = async (req, res) => {
 };
 
 /**
+ * DELETE /api/hod/courses/:id - HOD deletes their course
+ * Can only delete courses belonging to their department
+ * Deletes course and all related enrollments/sessions
+ */
+exports.deleteCourseasHOD = async (req, res) => {
+  try {
+    const hodId = req.user.id;
+    const courseId = req.params.id;
+
+    // CRITICAL: Verify course belongs to this HOD only
+    const [courses] = await db.query(
+      `SELECT id, title FROM courses WHERE id = ? AND created_by = ?`,
+      [courseId, hodId],
+    );
+
+    if (!courses.length) {
+      return res.status(403).json({
+        error: "You can only delete courses in your department",
+      });
+    }
+
+    // Delete all enrollments first (cascade)
+    await db.query(`DELETE FROM course_enrollments WHERE course_id = ?`, [
+      courseId,
+    ]);
+
+    // Delete all sessions
+    await db.query(`DELETE FROM course_sessions WHERE course_id = ?`, [
+      courseId,
+    ]);
+
+    // Delete the course
+    await db.query(`DELETE FROM courses WHERE id = ?`, [courseId]);
+
+    // Log the deletion
+    await auditLog(
+      hodId,
+      "DELETE",
+      "COURSE",
+      courseId,
+      null,
+      null,
+      { deleted_course: courses[0] },
+      `HOD deleted course: ${courses[0].title}`,
+    );
+
+    res.json({ message: "Course deleted successfully" });
+  } catch (error) {
+    console.error("Delete course error:", error);
+    res.status(500).json({ error: "Failed to delete course" });
+  }
+};
+
+/**
+ * POST /api/hod/courses/:id/accept - HOD accepts a course assignment
+ * Can only accept courses directly assigned to them (assignment_status = 'pending')
+ */
+exports.acceptCourseAsHOD = async (req, res) => {
+  try {
+    const hodId = req.user.id;
+    const courseId = req.params.id;
+
+    // Verify course is assigned to this HOD and is pending
+    const [courses] = await db.query(
+      `SELECT id, title, assignment_status FROM courses WHERE id = ? AND assigned_faculty_id = ?`,
+      [courseId, hodId],
+    );
+
+    if (!courses.length) {
+      return res
+        .status(404)
+        .json({ error: "Course not found or not assigned to you" });
+    }
+
+    if (courses[0].assignment_status !== "pending") {
+      return res.status(400).json({
+        error: `Cannot accept course with status: ${courses[0].assignment_status}`,
+      });
+    }
+
+    // Accept the course
+    await db.query(
+      `UPDATE courses SET assignment_status = 'accepted', accepted_at = NOW() WHERE id = ?`,
+      [courseId],
+    );
+
+    // Log HOD action
+    await auditLog(
+      hodId,
+      "ACCEPT",
+      "COURSE",
+      courseId,
+      null,
+      null,
+      { course_title: courses[0].title },
+      `HOD accepted course assignment: ${courses[0].title}`,
+    );
+
+    res.json({
+      message: "Course accepted successfully",
+      courseId,
+      status: "accepted",
+    });
+  } catch (error) {
+    console.error("Accept course error:", error);
+    res.status(500).json({ error: "Failed to accept course" });
+  }
+};
+
+/**
+ * POST /api/hod/courses/:id/reject - HOD rejects a course assignment
+ * Can only reject courses directly assigned to them (assignment_status = 'pending')
+ */
+exports.rejectCourseAsHOD = async (req, res) => {
+  try {
+    const hodId = req.user.id;
+    const courseId = req.params.id;
+    const { rejection_reason } = req.body;
+
+    // Verify course is assigned to this HOD and is pending
+    const [courses] = await db.query(
+      `SELECT id, title, assignment_status FROM courses WHERE id = ? AND assigned_faculty_id = ?`,
+      [courseId, hodId],
+    );
+
+    if (!courses.length) {
+      return res
+        .status(404)
+        .json({ error: "Course not found or not assigned to you" });
+    }
+
+    if (courses[0].assignment_status !== "pending") {
+      return res.status(400).json({
+        error: `Cannot reject course with status: ${courses[0].assignment_status}`,
+      });
+    }
+
+    // Reject the course
+    await db.query(
+      `UPDATE courses SET assignment_status = 'rejected', rejected_at = NOW() WHERE id = ?`,
+      [courseId],
+    );
+
+    // Log HOD action
+    await auditLog(
+      hodId,
+      "REJECT",
+      "COURSE",
+      courseId,
+      null,
+      null,
+      { course_title: courses[0].title, reason: rejection_reason },
+      `HOD rejected course assignment: ${courses[0].title}`,
+    );
+
+    res.json({
+      message: "Course rejected successfully",
+      courseId,
+      status: "rejected",
+    });
+  } catch (error) {
+    console.error("Reject course error:", error);
+    res.status(500).json({ error: "Failed to reject course" });
+  }
+};
+
+/**
  * GET /api/hod/my-faculty - HOD views ONLY their faculty
  * Strict isolation: cannot see other HOD's faculty
  */
@@ -227,7 +431,7 @@ exports.getMyFacultyAsHOD = async (req, res) => {
       `SELECT u.id, u.name, u.email,
               COUNT(DISTINCT c.id) as assigned_courses
        FROM users u
-       LEFT JOIN courses c ON u.id = c.assigned_faculty_id AND c.hod_id = ?
+       LEFT JOIN courses c ON u.id = c.assigned_faculty_id AND c.created_by = ?
        WHERE u.report_to = ? AND u.user_type = 'faculty'
        GROUP BY u.id
        ORDER BY u.name`,
@@ -360,15 +564,15 @@ exports.getHODStatsAsHOD = async (req, res) => {
     const [stats] = await db.query(
       `SELECT
         (SELECT COUNT(*) FROM users WHERE report_to = ? AND user_type = 'faculty') as total_faculty,
-        (SELECT COUNT(*) FROM courses WHERE hod_id = ?) as my_courses,
-        (SELECT COUNT(*) FROM courses WHERE hod_id = ? AND approval_status = 'PENDING') as pending_approval,
-        (SELECT COUNT(*) FROM courses WHERE hod_id = ? AND approval_status = 'APPROVED') as approved_courses,
+        (SELECT COUNT(*) FROM courses WHERE created_by = ?) as my_courses,
+        (SELECT COUNT(*) FROM courses WHERE created_by = ? AND assignment_status = 'pending') as pending_approval,
+        (SELECT COUNT(*) FROM courses WHERE created_by = ? AND assignment_status = 'accepted') as approved_courses,
         (SELECT COUNT(*) FROM leave_requests lr 
-         JOIN users u ON lr.user_id = u.id 
-         WHERE u.report_to = ? AND lr.status = 'PENDING') as pending_leaves,
+         JOIN users u ON lr.student_id = u.id 
+         WHERE u.report_to = ? AND lr.status = 'pending') as pending_leaves,
         (SELECT SUM(CASE WHEN ce.student_id IS NOT NULL THEN 1 ELSE 0 END) FROM courses c
          LEFT JOIN course_enrollments ce ON c.id = ce.course_id
-         WHERE c.hod_id = ?) as total_enrolled_students
+         WHERE c.created_by = ?) as total_enrolled_students
       `,
       [hodId, hodId, hodId, hodId, hodId, hodId],
     );

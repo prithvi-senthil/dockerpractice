@@ -32,6 +32,7 @@ const CreateCourseScreen = ({ navigation }) => {
   // Form States
   const [courseCode, setCourseCode] = useState("");
   const [courseName, setCourseName] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [hodId, setHodId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -41,7 +42,9 @@ const CreateCourseScreen = ({ navigation }) => {
 
   // UI States
   const [loading, setLoading] = useState(false);
+  const [departments, setDepartments] = useState([]);
   const [hods, setHods] = useState([]);
+  const [showDepartmentModal, setShowDepartmentModal] = useState(false);
   const [showHodModal, setShowHodModal] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
@@ -58,9 +61,20 @@ const CreateCourseScreen = ({ navigation }) => {
   const [workingHoursEnabled, setWorkingHoursEnabled] = useState(true);
 
   useEffect(() => {
+    loadDepartments();
     loadHods();
     fetchWorkingHours();
   }, []);
+
+  const loadDepartments = async () => {
+    try {
+      const response = await api.get("/departments");
+      setDepartments(response.data.departments || response.data.data || []);
+    } catch (error) {
+      console.error("Load departments error:", error);
+      Alert.alert("Error", "Failed to load departments");
+    }
+  };
 
   const loadHods = async () => {
     try {
@@ -71,6 +85,17 @@ const CreateCourseScreen = ({ navigation }) => {
     } catch (error) {
       console.error("Load HODs error:", error);
       Alert.alert("Error", "Failed to load HOD members");
+    }
+  };
+
+  const handleDepartmentSelect = (dept) => {
+    setDepartmentId(dept.id.toString());
+    setShowDepartmentModal(false);
+    // Auto-select HOD if department has one assigned
+    if (dept.hod_id) {
+      setHodId(dept.hod_id.toString());
+    } else {
+      setHodId("");
     }
   };
 
@@ -194,6 +219,11 @@ const CreateCourseScreen = ({ navigation }) => {
       return;
     }
 
+    if (!departmentId) {
+      Alert.alert("Error", "Please select a department");
+      return;
+    }
+
     if (!hodId) {
       Alert.alert("Error", "Please select a HOD");
       return;
@@ -243,6 +273,7 @@ const CreateCourseScreen = ({ navigation }) => {
       const courseData = {
         title: courseName.trim(),
         assigned_faculty_id: parseInt(hodId),
+        department_id: parseInt(departmentId),
         start_date: startDate,
         end_date: endDate,
         schedule_days: sessionDays.join(","),
@@ -308,6 +339,100 @@ const CreateCourseScreen = ({ navigation }) => {
             placeholderTextColor="#b0bec5"
           />
         </View>
+
+        {/* Department */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Department *</Text>
+          <TouchableOpacity
+            style={styles.facDropdownButton}
+            onPress={() => setShowDepartmentModal(true)}
+          >
+            <Ionicons name="folder" size={20} color="#7d53f6" />
+            <Text
+              style={[
+                styles.facDropdownText,
+                !departmentId && styles.placeholderText,
+              ]}
+            >
+              {departmentId
+                ? departments.find((d) => d.id.toString() === departmentId)
+                    ?.name || "Select Department"
+                : "Select Department"}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#999" />
+          </TouchableOpacity>
+          {departmentId && (
+            <Ionicons
+              name="checkmark"
+              size={18}
+              color="#7d53f6"
+              style={styles.facCheckmark}
+            />
+          )}
+          <Text style={styles.hint}>Select the department for this course</Text>
+        </View>
+
+        {/* Department Modal Dropdown */}
+        <Modal
+          visible={showDepartmentModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDepartmentModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.facModalContent}>
+              {/* Modal Header */}
+              <View style={styles.facModalHeader}>
+                <TouchableOpacity onPress={() => setShowDepartmentModal(false)}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+                <Text style={styles.facModalTitle}>Select Department</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              {/* Department List */}
+              <FlatList
+                data={departments}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.facListItem,
+                      departmentId === item.id.toString() &&
+                        styles.facListItemActive,
+                    ]}
+                    onPress={() => handleDepartmentSelect(item)}
+                  >
+                    <Ionicons name="folder" size={40} color="#7d53f6" />
+                    <View style={styles.facItemContent}>
+                      <Text
+                        style={[
+                          styles.facItemName,
+                          departmentId === item.id.toString() &&
+                            styles.facItemNameActive,
+                        ]}
+                      >
+                        {item.name}
+                      </Text>
+                      <Text style={styles.facItemEmail}>
+                        {item.hod_name
+                          ? `HOD: ${item.hod_name}`
+                          : "No HOD assigned"}
+                      </Text>
+                    </View>
+                    {departmentId === item.id.toString() && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={24}
+                        color="#7d53f6"
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
 
         {/* HOD */}
         <View style={styles.inputGroup}>

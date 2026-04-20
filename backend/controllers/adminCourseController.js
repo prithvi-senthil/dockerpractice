@@ -17,13 +17,16 @@ const auditLog = require("../utils/auditLog");
  */
 exports.getAllCoursesAsAdmin = async (req, res) => {
   try {
-    // Get all courses with faculty/hod names
+    // Get all courses with faculty/hod names and department info
     const [courses] = await db.query(
       `SELECT c.id, c.title, c.course_code as code, c.description, c.start_date, c.end_date,
               c.assignment_status as approval_status, c.created_at, c.assigned_faculty_id,
-              f.name as faculty_name
+              c.department_id,
+              f.name as faculty_name,
+              d.name as department_name
        FROM courses c
        LEFT JOIN users f ON c.assigned_faculty_id = f.id
+       LEFT JOIN departments d ON c.department_id = d.id
        ORDER BY c.created_at DESC`,
     );
 
@@ -140,12 +143,10 @@ exports.approveCourseAsAdmin = async (req, res) => {
     // Update course status
     await db.query(
       `UPDATE courses 
-       SET approval_status = 'APPROVED',
-           approved_by = ?,
-           approved_at = NOW(),
-           approval_notes = ?
+       SET assignment_status = 'accepted',
+           accepted_at = NOW()
        WHERE id = ?`,
-      [adminId, approval_notes || null, courseId],
+      [courseId],
     );
 
     // Log admin action
@@ -155,15 +156,15 @@ exports.approveCourseAsAdmin = async (req, res) => {
       "COURSE",
       courseId,
       "ADMIN_APPROVE_COURSE",
-      { approval_status: "PENDING" },
-      { approval_status: "APPROVED", approval_notes },
-      `Admin approved course: ${course.title} from HOD ${course.hod_id}`,
+      { assignment_status: "pending" },
+      { assignment_status: "accepted" },
+      `Admin approved course: ${course.title} assigned to faculty ${course.assigned_faculty_id}`,
     );
 
     res.json({
       message: "Course approved successfully",
       courseId,
-      status: "APPROVED",
+      status: "accepted",
     });
   } catch (error) {
     console.error("Approve course error:", error);
@@ -198,12 +199,10 @@ exports.rejectCourseAsAdmin = async (req, res) => {
     // Update course status
     await db.query(
       `UPDATE courses 
-       SET approval_status = 'REJECTED',
-           rejected_by = ?,
-           rejected_at = NOW(),
-           approval_notes = ?
+       SET assignment_status = 'rejected',
+           rejected_at = NOW()
        WHERE id = ?`,
-      [adminId, rejection_reason, courseId],
+      [courseId],
     );
 
     // Log admin action
@@ -213,15 +212,15 @@ exports.rejectCourseAsAdmin = async (req, res) => {
       "COURSE",
       courseId,
       "ADMIN_REJECT_COURSE",
-      { approval_status: "PENDING" },
-      { approval_status: "REJECTED", rejection_reason },
-      `Admin rejected course: ${course.title} from HOD ${course.hod_id} - Reason: ${rejection_reason}`,
+      { assignment_status: "pending" },
+      { assignment_status: "rejected", rejection_reason },
+      `Admin rejected course: ${course.title} assigned to faculty ${course.assigned_faculty_id} - Reason: ${rejection_reason}`,
     );
 
     res.json({
       message: "Course rejected successfully",
       courseId,
-      status: "REJECTED",
+      status: "rejected",
     });
   } catch (error) {
     console.error("Reject course error:", error);

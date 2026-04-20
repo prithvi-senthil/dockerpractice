@@ -31,6 +31,7 @@ import NotificationIcon from "../components/NotificationIcon";
 import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
 import AdminCoursesScreen from "../screens/admin/AdminCoursesScreen";
 import AdminCourseDetailScreen from "../screens/admin/AdminCourseDetailScreen";
+import DepartmentManagementScreen from "../screens/admin/DepartmentManagementScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -199,7 +200,7 @@ const FacultyTabs = () => (
   </Tab.Navigator>
 );
 
-// Admin View: Dashboard (with Users Management), Calendar, Profile
+// Admin View: Dashboard (with Users Management), Calendar, Departments, Profile
 const AdminTabs = () => (
   <Tab.Navigator
     screenOptions={({ route, navigation }) => ({
@@ -214,6 +215,8 @@ const AdminTabs = () => (
           iconName = focused ? "home" : "home-outline";
         else if (route.name === "CalendarTab")
           iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "DepartmentsTab")
+          iconName = focused ? "folder" : "folder-outline";
         else iconName = focused ? "person" : "person-outline";
         return <Ionicons name={iconName} size={size || 24} color={color} />;
       },
@@ -224,7 +227,9 @@ const AdminTabs = () => (
           ? "Home"
           : route.name === "CalendarTab"
             ? "Calendar"
-            : "Profile",
+            : route.name === "DepartmentsTab"
+              ? "Departments"
+              : "Profile",
       tabBarLabelStyle: {
         fontSize: 11,
         fontWeight: "500",
@@ -257,6 +262,103 @@ const AdminTabs = () => (
       options={{ title: "Calendar" }}
     />
     <Tab.Screen
+      name="DepartmentsTab"
+      component={DepartmentManagementScreen}
+      options={{ title: "Departments" }}
+    />
+    <Tab.Screen
+      name="ProfileTab"
+      component={ProfileScreen}
+      options={{ title: "Profile" }}
+    />
+  </Tab.Navigator>
+);
+
+// HOD View: Dashboard, Calendar, Courses Management, Departments, Leave Requests, Profile
+const HODTabs = () => (
+  <Tab.Navigator
+    screenOptions={({ route, navigation }) => ({
+      headerShown: true,
+      headerStyle: { backgroundColor: "#fff" },
+      headerTintColor: "#7d53f6",
+      headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+      tabBarShowLabel: true,
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName;
+        if (route.name === "DashboardTab")
+          iconName = focused ? "home" : "home-outline";
+        else if (route.name === "CalendarTab")
+          iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "CoursesTab")
+          iconName = focused ? "book" : "book-outline";
+        else if (route.name === "DepartmentsTab")
+          iconName = focused ? "folder" : "folder-outline";
+        else if (route.name === "LeavesTab")
+          iconName = focused ? "document-text" : "document-text-outline";
+        else iconName = focused ? "person" : "person-outline";
+        return <Ionicons name={iconName} size={size || 24} color={color} />;
+      },
+      tabBarActiveTintColor: "#7d53f6",
+      tabBarInactiveTintColor: "#999",
+      tabBarLabel:
+        route.name === "DashboardTab"
+          ? "Home"
+          : route.name === "CalendarTab"
+            ? "Calendar"
+            : route.name === "CoursesTab"
+              ? "Manage Courses"
+              : route.name === "DepartmentsTab"
+                ? "Departments"
+                : route.name === "LeavesTab"
+                  ? "Leave Requests"
+                  : "Profile",
+      tabBarLabelStyle: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 2,
+      },
+      tabBarStyle: {
+        backgroundColor: "#fff",
+        borderTopColor: "#eee",
+        borderTopWidth: 1,
+        height: 60,
+        paddingBottom: 8,
+        paddingTop: 8,
+      },
+      headerRight: () => (
+        <NotificationIcon
+          onPress={() => navigation.navigate("Notifications")}
+          tintColor="#7d53f6"
+        />
+      ),
+    })}
+  >
+    <Tab.Screen
+      name="DashboardTab"
+      component={DashboardScreen}
+      options={{ title: "HOD Dashboard" }}
+    />
+    <Tab.Screen
+      name="CalendarTab"
+      component={CalendarScreen}
+      options={{ title: "Calendar" }}
+    />
+    <Tab.Screen
+      name="CoursesTab"
+      component={AdminCoursesScreen}
+      options={{ title: "Manage Courses" }}
+    />
+    <Tab.Screen
+      name="DepartmentsTab"
+      component={DepartmentManagementScreen}
+      options={{ title: "Departments" }}
+    />
+    <Tab.Screen
+      name="LeavesTab"
+      component={MyLeavesScreen}
+      options={{ title: "Leave Requests" }}
+    />
+    <Tab.Screen
       name="ProfileTab"
       component={ProfileScreen}
       options={{ title: "Profile" }}
@@ -271,6 +373,9 @@ const AppStack = () => {
   switch (user?.user_type) {
     case "admin":
       MainTabs = AdminTabs;
+      break;
+    case "hod":
+      MainTabs = HODTabs;
       break;
     case "faculty":
       MainTabs = FacultyTabs;

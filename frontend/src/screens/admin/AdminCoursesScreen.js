@@ -12,16 +12,22 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../services/api";
 
 const { width } = Dimensions.get("window");
 
 const AdminCoursesScreen = ({ navigation }) => {
+  const { user } = useAuth();
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
+
+  const isAdmin = user?.user_type === "admin";
+  const isHOD = user?.user_type === "hod";
+  const apiBase = isHOD ? "/hod/my-courses" : "/admin/courses";
 
   useFocusEffect(
     React.useCallback(() => {
@@ -33,7 +39,7 @@ const AdminCoursesScreen = ({ navigation }) => {
   const fetchCourses = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/admin/courses");
+      const response = await api.get(apiBase);
       setCourses(response.data.courses || []);
     } catch (error) {
       console.error("Fetch courses error:", error);
@@ -52,11 +58,11 @@ const AdminCoursesScreen = ({ navigation }) => {
   const getFilteredCourses = () => {
     if (activeTab === "all") return courses;
     if (activeTab === "pending")
-      return courses.filter((c) => c.approval_status === "pending");
+      return courses.filter((c) => c.assignment_status === "pending");
     if (activeTab === "approved")
-      return courses.filter((c) => c.approval_status === "accepted");
+      return courses.filter((c) => c.assignment_status === "accepted");
     if (activeTab === "rejected")
-      return courses.filter((c) => c.approval_status === "rejected");
+      return courses.filter((c) => c.assignment_status === "rejected");
     return courses;
   };
 
@@ -75,10 +81,10 @@ const AdminCoursesScreen = ({ navigation }) => {
           onPress: async () => {
             try {
               setDeletingId(courseId);
-              // Archive course by rejecting it
-              await api.post(`/admin/courses/${courseId}/reject`, {
-                approval_notes: "Course archived by admin",
-              });
+              const endpoint = isHOD
+                ? `/hod/courses/${courseId}`
+                : `/admin/courses/${courseId}`;
+              await api.delete(endpoint);
               Alert.alert("Success", "Course archived successfully");
               fetchCourses();
             } catch (error) {
@@ -97,32 +103,66 @@ const AdminCoursesScreen = ({ navigation }) => {
     );
   };
 
-  const handleApproveCourse = async (courseId) => {
-    try {
-      await api.post(`/admin/courses/${courseId}/approve`);
-      Alert.alert("Success", "Course approved successfully");
-      fetchCourses();
-    } catch (error) {
-      console.error("Approve course error:", error);
-      Alert.alert(
-        "Error",
-        error.response?.data?.error || "Failed to approve course",
-      );
-    }
+  const handleAcceptCourse = async (courseId, courseTitle) => {
+    Alert.alert("Accept Course", `Accept assignment for "${courseTitle}"?`, [
+      {
+        text: "Cancel",
+        onPress: () => {},
+        style: "cancel",
+      },
+      {
+        text: "Accept",
+        onPress: async () => {
+          try {
+            setDeletingId(courseId);
+            const endpoint = `/hod/courses/${courseId}/accept`;
+            await api.post(endpoint);
+            Alert.alert("Success", "Course accepted successfully");
+            fetchCourses();
+          } catch (error) {
+            console.error("Accept course error:", error);
+            Alert.alert(
+              "Error",
+              error.response?.data?.error || "Failed to accept course",
+            );
+          } finally {
+            setDeletingId(null);
+          }
+        },
+        style: "default",
+      },
+    ]);
   };
 
-  const handleRejectCourse = async (courseId) => {
-    try {
-      await api.post(`/admin/courses/${courseId}/reject`);
-      Alert.alert("Success", "Course rejected successfully");
-      fetchCourses();
-    } catch (error) {
-      console.error("Reject course error:", error);
-      Alert.alert(
-        "Error",
-        error.response?.data?.error || "Failed to reject course",
-      );
-    }
+  const handleRejectCourse = async (courseId, courseTitle) => {
+    Alert.alert("Reject Course", `Reject assignment for "${courseTitle}"?`, [
+      {
+        text: "Cancel",
+        onPress: () => {},
+        style: "cancel",
+      },
+      {
+        text: "Reject",
+        onPress: async () => {
+          try {
+            setDeletingId(courseId);
+            const endpoint = `/hod/courses/${courseId}/reject`;
+            await api.post(endpoint);
+            Alert.alert("Success", "Course rejected successfully");
+            fetchCourses();
+          } catch (error) {
+            console.error("Reject course error:", error);
+            Alert.alert(
+              "Error",
+              error.response?.data?.error || "Failed to reject course",
+            );
+          } finally {
+            setDeletingId(null);
+          }
+        },
+        style: "destructive",
+      },
+    ]);
   };
 
   const getStatusColor = (status) => {
@@ -171,21 +211,21 @@ const AdminCoursesScreen = ({ navigation }) => {
         <View
           style={[
             styles.statusBadge,
-            { backgroundColor: getStatusColor(item.approval_status) + "20" },
+            { backgroundColor: getStatusColor(item.assignment_status) + "20" },
           ]}
         >
           <Ionicons
-            name={getStatusIcon(item.approval_status)}
+            name={getStatusIcon(item.assignment_status)}
             size={14}
-            color={getStatusColor(item.approval_status)}
+            color={getStatusColor(item.assignment_status)}
           />
           <Text
             style={[
               styles.statusText,
-              { color: getStatusColor(item.approval_status) },
+              { color: getStatusColor(item.assignment_status) },
             ]}
           >
-            {item.approval_status}
+            {item.assignment_status}
           </Text>
         </View>
       </View>
@@ -212,6 +252,14 @@ const AdminCoursesScreen = ({ navigation }) => {
             </Text>
           </View>
         )}
+        {item.department_name && (
+          <View style={styles.detailItem}>
+            <Ionicons name="folder-outline" size={14} color="#666" />
+            <Text style={styles.detailText} numberOfLines={1}>
+              {item.department_name}
+            </Text>
+          </View>
+        )}
       </View>
 
       {item.total_students > 0 && (
@@ -224,26 +272,51 @@ const AdminCoursesScreen = ({ navigation }) => {
       )}
 
       {/* Action Buttons */}
-      {item.approval_status === "pending" && (
-        <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.rejectBtn]}
-            onPress={() => handleRejectCourse(item.id)}
-          >
-            <Ionicons name="close" size={14} color="#fff" />
-            <Text style={styles.actionBtnText}>Reject</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.approveBtn]}
-            onPress={() => handleApproveCourse(item.id)}
-          >
-            <Ionicons name="checkmark" size={14} color="#fff" />
-            <Text style={styles.actionBtnText}>Approve</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {item.approval_status !== "pending" && (
+      {/* For HOD: Accept/Reject if assigned to them and pending */}
+      {isHOD &&
+        item.assignment_status === "pending" &&
+        item.assigned_faculty_id === user?.id && (
+          <View style={styles.actionBtnGroup}>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.acceptBtn]}
+              onPress={() => handleAcceptCourse(item.id, item.title)}
+              disabled={deletingId === item.id}
+            >
+              {deletingId === item.id ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={14}
+                    color="#fff"
+                  />
+                  <Text style={styles.actionBtnText}>Accept</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.rejectBtn]}
+              onPress={() => handleRejectCourse(item.id, item.title)}
+              disabled={deletingId === item.id}
+            >
+              {deletingId === item.id ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={14}
+                    color="#fff"
+                  />
+                  <Text style={styles.actionBtnText}>Reject</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+      {/* For Admin/HOD: Archive if created and non-pending */}
+      {item.assignment_status !== "pending" && (
         <TouchableOpacity
           style={[styles.actionBtn, styles.archiveBtn]}
           onPress={() => handleDeleteCourse(item.id, item.title)}
@@ -507,6 +580,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  actionBtnGroup: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
   actionBtn: {
     flex: 1,
     flexDirection: "row",
@@ -516,6 +594,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: 6,
+  },
+  acceptBtn: {
+    backgroundColor: "#10B981",
   },
   approveBtn: {
     backgroundColor: "#10B981",
