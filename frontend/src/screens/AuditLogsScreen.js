@@ -85,6 +85,12 @@ const ENTITY_META = {
     bg: "#FBE9E7",
     label: "User",
   },
+  DEPARTMENT: {
+    icon: "folder-outline",
+    color: "#EF4444",
+    bg: "#FEF2F2",
+    label: "Department",
+  },
   // ── Legacy/Admin Entities ──
   INFRASTRUCTURE: {
     icon: "hardware-chip-outline",

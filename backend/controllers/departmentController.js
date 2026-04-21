@@ -185,3 +185,52 @@ exports.updateDepartment = async (req, res) => {
     res.status(500).json({ error: "Failed to update department" });
   }
 };
+
+/**
+ * DELETE /api/departments/:id - Delete department (Admin only)
+ */
+exports.deleteDepartment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify department exists
+    const [existing] = await db.query(
+      `SELECT * FROM departments WHERE id = ?`,
+      [id],
+    );
+
+    if (!existing.length) {
+      return res.status(404).json({ error: "Department not found" });
+    }
+
+    const deptName = existing[0].name;
+
+    // Clear department field for all users in this department
+    await db.query(`UPDATE users SET department = NULL WHERE department = ?`, [
+      deptName,
+    ]);
+
+    // Delete department
+    await db.query(`DELETE FROM departments WHERE id = ?`, [id]);
+
+    // Log action
+    await auditLog(
+      req.user.id,
+      "DELETE",
+      "DEPARTMENT",
+      id,
+      null,
+      null,
+      { name: deptName },
+      `Deleted department: ${deptName} (cleared from ${deptName} users)`,
+    );
+
+    res.json({
+      success: true,
+      message: "Department deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete department error:", error);
+    res.status(500).json({ error: "Failed to delete department" });
+  }
+};

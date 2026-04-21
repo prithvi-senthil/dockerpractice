@@ -31,7 +31,6 @@ import NotificationIcon from "../components/NotificationIcon";
 import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
 import AdminCoursesScreen from "../screens/admin/AdminCoursesScreen";
 import AdminCourseDetailScreen from "../screens/admin/AdminCourseDetailScreen";
-import DepartmentManagementScreen from "../screens/admin/DepartmentManagementScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -200,7 +199,7 @@ const FacultyTabs = () => (
   </Tab.Navigator>
 );
 
-// Admin View: Dashboard (with Users Management), Calendar, Departments, Profile
+// Admin View: Dashboard (with Users Management), Calendar, Profile
 const AdminTabs = () => (
   <Tab.Navigator
     screenOptions={({ route, navigation }) => ({
@@ -215,8 +214,6 @@ const AdminTabs = () => (
           iconName = focused ? "home" : "home-outline";
         else if (route.name === "CalendarTab")
           iconName = focused ? "calendar" : "calendar-outline";
-        else if (route.name === "DepartmentsTab")
-          iconName = focused ? "folder" : "folder-outline";
         else iconName = focused ? "person" : "person-outline";
         return <Ionicons name={iconName} size={size || 24} color={color} />;
       },
@@ -227,9 +224,7 @@ const AdminTabs = () => (
           ? "Home"
           : route.name === "CalendarTab"
             ? "Calendar"
-            : route.name === "DepartmentsTab"
-              ? "Departments"
-              : "Profile",
+            : "Profile",
       tabBarLabelStyle: {
         fontSize: 11,
         fontWeight: "500",
@@ -262,11 +257,6 @@ const AdminTabs = () => (
       options={{ title: "Calendar" }}
     />
     <Tab.Screen
-      name="DepartmentsTab"
-      component={DepartmentManagementScreen}
-      options={{ title: "Departments" }}
-    />
-    <Tab.Screen
       name="ProfileTab"
       component={ProfileScreen}
       options={{ title: "Profile" }}
@@ -274,7 +264,7 @@ const AdminTabs = () => (
   </Tab.Navigator>
 );
 
-// HOD View: Dashboard, Calendar, Courses Management, Departments, Leave Requests, Profile
+// HOD View: Dashboard, Calendar, Courses Management, Leave Requests, Profile
 const HODTabs = () => (
   <Tab.Navigator
     screenOptions={({ route, navigation }) => ({
@@ -291,8 +281,6 @@ const HODTabs = () => (
           iconName = focused ? "calendar" : "calendar-outline";
         else if (route.name === "CoursesTab")
           iconName = focused ? "book" : "book-outline";
-        else if (route.name === "DepartmentsTab")
-          iconName = focused ? "folder" : "folder-outline";
         else if (route.name === "LeavesTab")
           iconName = focused ? "document-text" : "document-text-outline";
         else iconName = focused ? "person" : "person-outline";
@@ -307,11 +295,9 @@ const HODTabs = () => (
             ? "Calendar"
             : route.name === "CoursesTab"
               ? "Manage Courses"
-              : route.name === "DepartmentsTab"
-                ? "Departments"
-                : route.name === "LeavesTab"
-                  ? "Leave Requests"
-                  : "Profile",
+              : route.name === "LeavesTab"
+                ? "Leave Requests"
+                : "Profile",
       tabBarLabelStyle: {
         fontSize: 11,
         fontWeight: "500",
@@ -347,11 +333,6 @@ const HODTabs = () => (
       name="CoursesTab"
       component={AdminCoursesScreen}
       options={{ title: "Manage Courses" }}
-    />
-    <Tab.Screen
-      name="DepartmentsTab"
-      component={DepartmentManagementScreen}
-      options={{ title: "Departments" }}
     />
     <Tab.Screen
       name="LeavesTab"
@@ -510,6 +491,17 @@ const AppStack = () => {
         component={CreateCourseScreen}
         options={{
           title: "Create Course",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminUsers"
+        component={AdminUsersPanel}
+        options={{
+          title: "User Management",
           headerStyle: { backgroundColor: "#fff" },
           headerTintColor: "#7d53f6",
           headerTitleStyle: { fontWeight: "700" },

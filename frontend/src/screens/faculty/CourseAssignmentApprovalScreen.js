@@ -140,12 +140,6 @@ const CourseAssignmentApprovalScreen = ({ navigation }) => {
             <Ionicons name="repeat" size={16} color="#7d53f6" />
             <Text style={styles.detailText}>Days: {item.schedule_days}</Text>
           </View>
-          {item.description && (
-            <View style={styles.detailRow}>
-              <Ionicons name="document" size={16} color="#7d53f6" />
-              <Text style={styles.detailText}>{item.description}</Text>
-            </View>
-          )}
         </View>
 
         <View style={styles.actionButtons}>

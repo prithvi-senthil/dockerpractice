@@ -229,10 +229,8 @@ exports.createHOD = async (req, res) => {
     const admin_id = req.user.id;
 
     // Validation
-    if (!name || !email || !department) {
-      return res
-        .status(400)
-        .json({ error: "Name, email, and department are required" });
+    if (!name || !email) {
+      return res.status(400).json({ error: "Name and email are required" });
     }
 
     // Check if email already exists
@@ -258,7 +256,7 @@ exports.createHOD = async (req, res) => {
       email,
       hashedPassword,
       "hod",
-      department,
+      department || null,
     ]);
 
     const hodId = result.insertId;
@@ -267,7 +265,7 @@ exports.createHOD = async (req, res) => {
     const emailResult = await sendHODWelcomeEmail(
       email,
       name,
-      department,
+      department || "TBD",
       password,
     );
 

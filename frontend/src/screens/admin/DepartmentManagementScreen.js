@@ -10,18 +10,23 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
+  RefreshControl,
 } from "react-native";
-import { api } from "../../services/api";
+import { Ionicons } from "@expo/vector-icons";
+import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
 const DepartmentManagementScreen = () => {
   const { user } = useAuth();
   const [departments, setDepartments] = useState([]);
+  const [filteredDepartments, setFilteredDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [hods, setHods] = useState([]);
   const [loadingHods, setLoadingHods] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -36,11 +41,41 @@ const DepartmentManagementScreen = () => {
     }
   }, []);
 
+  useEffect(() => {
+    filterDepartments();
+  }, [departments, searchQuery]);
+
+  const filterDepartments = () => {
+    if (!searchQuery.trim()) {
+      setFilteredDepartments(departments);
+    } else {
+      const filtered = departments.filter(
+        (dept) =>
+          dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (dept.hod_name &&
+            dept.hod_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (dept.description &&
+            dept.description.toLowerCase().includes(searchQuery.toLowerCase())),
+      );
+      setFilteredDepartments(filtered);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadDepartments();
+    setRefreshing(false);
+  };
+
+  const handleSearchChange = (text) => {
+    setSearchQuery(text);
+  };
+
   const loadDepartments = async () => {
     try {
-      setLoading(true);
       const response = await api.get("/departments");
-      setDepartments(response.data.departments || response.data.data || []);
+      const deptList = response.data.departments || response.data.data || [];
+      setDepartments(deptList);
     } catch (error) {
       console.error("Error loading departments:", error);
       Alert.alert("Error", "Failed to load departments");
@@ -112,84 +147,161 @@ const DepartmentManagementScreen = () => {
   };
 
   const renderDepartmentCard = ({ item }) => (
-    <View style={styles.card}>
+    <View style={styles.departmentCard}>
       <View style={styles.cardHeader}>
-        <View style={styles.cardTitle}>
-          <Text style={styles.deptName}>{item.name}</Text>
+        <View style={styles.cardTitleContainer}>
+          <View style={styles.deptIconContainer}>
+            <Ionicons name="folder" size={20} color="#EF4444" />
+          </View>
+          <View style={styles.titleSection}>
+            <Text style={styles.deptName}>{item.name}</Text>
+            {item.hod_name && (
+              <Text style={styles.hodNameSmall}>HOD: {item.hod_name}</Text>
+            )}
+          </View>
         </View>
       </View>
 
-      <Text style={styles.description}>
-        {item.description || "No description"}
-      </Text>
-
-      <View style={styles.hodInfo}>
-        <Text style={styles.label}>HOD:</Text>
-        <Text style={styles.value}>{item.hod_name || "Not assigned"}</Text>
-      </View>
-
       {item.hod_email && (
-        <View style={styles.emailInfo}>
-          <Text style={styles.label}>Email:</Text>
+        <View style={styles.emailRow}>
+          <Ionicons name="mail" size={14} color="#999" />
           <Text style={styles.email}>{item.hod_email}</Text>
         </View>
       )}
 
-      <View style={styles.cardFooter}>
+      <View style={styles.cardActions}>
         <TouchableOpacity
-          style={styles.editBtn}
+          style={styles.editAction}
           onPress={() => handleOpenModal(item)}
           disabled={user?.user_type !== "admin"}
         >
-          <Text style={styles.editBtnText}>
+          <Ionicons name="create" size={16} color="#EF4444" />
+          <Text style={styles.editActionText}>
             {user?.user_type === "admin" ? "Edit" : "View"}
           </Text>
         </TouchableOpacity>
+        {user?.user_type === "admin" && (
+          <TouchableOpacity
+            style={[styles.editAction, styles.deleteAction]}
+            onPress={() => handleDeleteDept(item.id)}
+          >
+            <Ionicons name="trash" size={16} color="#ff3b30" />
+            <Text style={styles.deleteActionText}>Delete</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
 
-  if (loading) {
+  const handleDeleteDept = (id) => {
+    Alert.alert(
+      "Delete Department",
+      "Are you sure you want to delete this department?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.delete(`/departments/${id}`);
+              Alert.alert("Success", "Department deleted successfully");
+              loadDepartments();
+            } catch (error) {
+              console.error("Error deleting department:", error);
+              Alert.alert(
+                "Error",
+                error.response?.data?.message || "Failed to delete department",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  if (loading && departments.length === 0) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" color="#3B82F6" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#EF4444" />
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Departments</Text>
-        {user?.user_type === "admin" && (
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => handleOpenModal()}
-          >
-            <Text style={styles.addBtnText}>+ Add Department</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
-      {departments.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No departments found</Text>
-          {user?.user_type === "admin" && (
-            <Text style={styles.emptySubtext}>
-              Tap "Add Department" to create one
-            </Text>
+      {/* Add Department Button */}
+      {user?.user_type === "admin" && (
+        <View style={styles.addButtonSection}>
+          <TouchableOpacity
+            style={styles.addMainBtn}
+            onPress={() => handleOpenModal()}
+          >
+            <Ionicons name="add-circle" size={20} color="#fff" />
+            <Text style={styles.addMainBtnText}>Add Department</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
+          <Ionicons name="search" size={18} color="#999" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search departments..."
+            value={searchQuery}
+            onChangeText={handleSearchChange}
+            placeholderTextColor="#999"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => handleSearchChange("")}>
+              <Ionicons name="close-circle" size={18} color="#999" />
+            </TouchableOpacity>
           )}
+        </View>
+      </View>
+
+      {/* Departments List */}
+      {filteredDepartments.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="folder-open" size={48} color="#ccc" />
+          <Text style={styles.emptyText}>
+            {searchQuery ? "No departments found" : "No departments yet"}
+          </Text>
+          <Text style={styles.emptySubText}>
+            {searchQuery
+              ? "Try adjusting your search"
+              : user?.user_type === "admin"
+                ? "Tap 'Add Department' to create one"
+                : "No departments available"}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={departments}
+          data={filteredDepartments}
           renderItem={renderDepartmentCard}
           keyExtractor={(item) => item.id.toString()}
-          scrollEnabled={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#EF4444"
+            />
+          }
+          contentContainerStyle={styles.listContent}
+          scrollEnabled={true}
         />
       )}
 
-      {/* Create/Edit Modal */}
+      {/* Add/Edit Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -201,7 +313,7 @@ const DepartmentManagementScreen = () => {
               {editingId ? "Edit Department" : "Add Department"}
             </Text>
             <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <Text style={styles.closeBtn}>✕</Text>
+              <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
 
@@ -233,7 +345,7 @@ const DepartmentManagementScreen = () => {
                 <Text style={styles.label}>Assign HOD</Text>
                 <View style={styles.hodSelector}>
                   {loadingHods ? (
-                    <ActivityIndicator size="small" color="#3B82F6" />
+                    <ActivityIndicator size="small" color="#EF4444" />
                   ) : (
                     hods.map((hod) => (
                       <TouchableOpacity
@@ -294,125 +406,184 @@ const DepartmentManagementScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#f8f9fa",
   },
-  header: {
-    padding: 16,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#1F2937",
-  },
-  addBtn: {
-    backgroundColor: "#3B82F6",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  addBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 12,
-    marginVertical: 8,
-    borderRadius: 8,
-    padding: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: "#3B82F6",
-    elevation: 2,
-  },
-  cardHeader: {
-    marginBottom: 12,
-  },
-  cardTitle: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  deptName: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1F2937",
-  },
-  description: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginBottom: 12,
-    fontStyle: "italic",
-  },
-  hodInfo: {
-    flexDirection: "row",
-    marginBottom: 8,
-    alignItems: "center",
-  },
-  emailInfo: {
-    flexDirection: "row",
-    marginBottom: 12,
-    alignItems: "center",
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B7280",
-    marginRight: 8,
-  },
-  value: {
-    fontSize: 14,
-    color: "#1F2937",
-    fontWeight: "500",
-  },
-  email: {
-    fontSize: 13,
-    color: "#3B82F6",
-  },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  editBtn: {
-    backgroundColor: "#E0E7FF",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  editBtnText: {
-    color: "#3B82F6",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  emptyState: {
+  loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  emptyText: {
-    fontSize: 18,
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    elevation: 1,
+  },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    letterSpacing: -0.5,
+  },
+  addButtonSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#ffffff",
+  },
+  addMainBtn: {
+    backgroundColor: "#EF4444",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    elevation: 2,
+  },
+  addMainBtnText: {
+    color: "#fff",
+    fontSize: 15,
     fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: 8,
   },
-  emptySubtext: {
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 40,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
     fontSize: 14,
-    color: "#9CA3AF",
+    color: "#333",
+    paddingVertical: 8,
   },
-  // Modal styles
+  departmentCard: {
+    backgroundColor: "#ffffff",
+    marginHorizontal: 12,
+    marginVertical: 8,
+    borderRadius: 10,
+    padding: 14,
+    borderLeftWidth: 2,
+    borderLeftColor: "#EF4444",
+    elevation: 2,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#f0f0f0",
+  },
+  cardHeader: {
+    marginBottom: 10,
+  },
+  cardTitleContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  deptIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: "#fef2f2",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  titleSection: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  deptName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 4,
+  },
+  hodNameSmall: {
+    fontSize: 12,
+    color: "#999",
+    fontWeight: "500",
+  },
+  description: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 10,
+    lineHeight: 18,
+    marginLeft: 52,
+  },
+  emailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+    marginLeft: 52,
+  },
+  email: {
+    fontSize: 12,
+    color: "#EF4444",
+    fontWeight: "500",
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+    marginLeft: 52,
+  },
+  editAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fef2f2",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+  },
+  deleteAction: {
+    backgroundColor: "#ffe5e5",
+  },
+  editActionText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
+  deleteActionText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#ff3b30",
+  },
+  listContent: {
+    paddingVertical: 8,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#999",
+    marginTop: 12,
+  },
+  emptySubText: {
+    fontSize: 13,
+    color: "#bbb",
+    marginTop: 6,
+    textAlign: "center",
+  },
   modalContainer: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#f8f9fa",
   },
   modalHeader: {
     flexDirection: "row",
@@ -420,36 +591,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#ffffff",
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: "#e0e0e0",
+    elevation: 2,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1F2937",
-  },
-  closeBtn: {
-    fontSize: 28,
-    fontWeight: "300",
-    color: "#6B7280",
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
   modalContent: {
     padding: 16,
   },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#666",
+    marginBottom: 8,
+  },
   input: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 6,
+    borderColor: "#ddd",
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     marginBottom: 16,
     fontSize: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#ffffff",
+    color: "#333",
   },
   textArea: {
     textAlignVertical: "top",
-    paddingTop: 10,
+    height: 100,
   },
   hodSelector: {
     marginBottom: 20,
@@ -461,31 +635,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: "#f0f0f0",
     marginBottom: 8,
   },
   hodOptionSelected: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#EF4444",
   },
   hodOptionText: {
     fontSize: 13,
-    color: "#374151",
+    color: "#666",
+    fontWeight: "500",
   },
   hodOptionTextSelected: {
-    color: "#FFFFFF",
+    color: "#ffffff",
     fontWeight: "600",
   },
   submitBtn: {
-    backgroundColor: "#10B981",
+    backgroundColor: "#EF4444",
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: "center",
     marginTop: 24,
     marginBottom: 32,
+    elevation: 2,
   },
   submitBtnText: {
-    color: "#FFFFFF",
-    fontSize: 16,
+    color: "#ffffff",
+    fontSize: 15,
     fontWeight: "600",
   },
 });

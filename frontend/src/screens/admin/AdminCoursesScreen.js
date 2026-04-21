@@ -230,12 +230,6 @@ const AdminCoursesScreen = ({ navigation }) => {
         </View>
       </View>
 
-      {item.description && (
-        <Text style={styles.description} numberOfLines={2}>
-          {item.description}
-        </Text>
-      )}
-
       <View style={styles.courseDetails}>
         <View style={styles.detailItem}>
           <Ionicons name="calendar-outline" size={14} color="#666" />

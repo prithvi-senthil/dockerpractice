@@ -33,7 +33,7 @@ const CreateActivityScreen = ({ navigation }) => {
   const { user } = useAuth();
 
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+
   const [courseCode, setCourseCode] = useState("");
   const [maxStudents, setMaxStudents] = useState("60");
   const [assignedFacultyId, setAssignedFacultyId] = useState("");
@@ -179,7 +179,7 @@ const CreateActivityScreen = ({ navigation }) => {
     try {
       const payload = {
         title: title.trim(),
-        description: description.trim(),
+
         max_students: parseInt(maxStudents) || 60,
         assigned_faculty_id: parseInt(assignedFacultyId),
         schedule_days: selectedDays.join(","),
@@ -198,7 +198,7 @@ const CreateActivityScreen = ({ navigation }) => {
           onPress: () => {
             setTitle("");
             setCourseCode("");
-            setDescription("");
+
             setMaxStudents("60");
             setAssignedFacultyId("");
             setAssignedFacultyName("Select Faculty...");
@@ -294,20 +294,6 @@ const CreateActivityScreen = ({ navigation }) => {
               placeholder="e.g., CS401"
               value={courseCode}
               onChangeText={setCourseCode}
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Course description..."
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
               placeholderTextColor="#999"
             />
           </View>

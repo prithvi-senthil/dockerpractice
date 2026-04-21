@@ -28,4 +28,9 @@ router.post("/", auth, requireRole("admin", "hod"), deptCtrl.createDepartment);
  */
 router.put("/:id", auth, requireRole("admin"), deptCtrl.updateDepartment);
 
+/**
+ * DELETE /api/departments/:id - Delete department (Admin only)
+ */
+router.delete("/:id", auth, requireRole("admin"), deptCtrl.deleteDepartment);
+
 module.exports = router;

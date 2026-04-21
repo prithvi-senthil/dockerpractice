@@ -16,7 +16,6 @@ import { useAuth } from "../../context/AuthContext";
 import { useFocusEffect } from "@react-navigation/native";
 import api from "../../services/api";
 import { canUserViewAdminPanel } from "../../utils/adminAccess";
-import AdminUsersPanel from "../admin/AdminUsersPanel";
 
 const { width } = Dimensions.get("window");
 
@@ -36,7 +35,6 @@ const DashboardScreen = ({ navigation }) => {
   const [sessions, setSessions] = useState([]);
   const [attendanceRate, setAttendanceRate] = useState(0);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
-  const [showAdminUsersModal, setShowAdminUsersModal] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -564,7 +562,7 @@ const DashboardScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
-                onPress={() => setShowAdminUsersModal(true)}
+                onPress={() => navigation.navigate("AdminUsers")}
               >
                 <View
                   style={[styles.adminIcon, { backgroundColor: "#FBE9E7" }]}
@@ -604,18 +602,6 @@ const DashboardScreen = ({ navigation }) => {
 
         <View style={{ height: 30 }} />
       </ScrollView>
-
-      {/* Admin Users Management Modal */}
-      <Modal
-        visible={showAdminUsersModal}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setShowAdminUsersModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <AdminUsersPanel onClose={() => setShowAdminUsersModal(false)} />
-        </View>
-      </Modal>
     </View>
   );
 };
