@@ -16,7 +16,6 @@ import { useAuth } from "../../context/AuthContext";
 import { useFocusEffect } from "@react-navigation/native";
 import api from "../../services/api";
 import { canUserViewAdminPanel } from "../../utils/adminAccess";
-import AdminUsersPanel from "../admin/AdminUsersPanel";
 
 const { width } = Dimensions.get("window");
 
@@ -36,7 +35,6 @@ const DashboardScreen = ({ navigation }) => {
   const [sessions, setSessions] = useState([]);
   const [attendanceRate, setAttendanceRate] = useState(0);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
-  const [showAdminUsersModal, setShowAdminUsersModal] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -52,6 +50,17 @@ const DashboardScreen = ({ navigation }) => {
       console.error("❌ Admin access check error:", error);
       setCanViewAdmin(false);
     }
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
   };
 
   useFocusEffect(
@@ -321,7 +330,8 @@ const DashboardScreen = ({ navigation }) => {
                 <View style={styles.sessionTime}>
                   <Ionicons name="time-outline" size={20} color="#7d53f6" />
                   <Text style={styles.sessionTimeText}>
-                    {session.start_time} - {session.end_time}
+                    {formatTime(session.start_time)} -{" "}
+                    {formatTime(session.end_time)}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
@@ -552,7 +562,7 @@ const DashboardScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
-                onPress={() => setShowAdminUsersModal(true)}
+                onPress={() => navigation.navigate("AdminUsers")}
               >
                 <View
                   style={[styles.adminIcon, { backgroundColor: "#FBE9E7" }]}
@@ -564,15 +574,15 @@ const DashboardScreen = ({ navigation }) => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
-                onPress={() => handleAdminNavigation("CreateCourse")}
+                onPress={() => navigation.navigate("AdminCourses")}
               >
                 <View
                   style={[styles.adminIcon, { backgroundColor: "#E3F2FD" }]}
                 >
                   <Ionicons name="book-outline" size={24} color="#1976D2" />
                 </View>
-                <Text style={styles.adminLabel}>Create Course</Text>
-                <Text style={styles.adminDesc}>New courses</Text>
+                <Text style={styles.adminLabel}>Manage Courses</Text>
+                <Text style={styles.adminDesc}>View & approve</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.adminCard}
@@ -585,32 +595,13 @@ const DashboardScreen = ({ navigation }) => {
                 </View>
                 <Text style={styles.adminLabel}>Assign Course</Text>
                 <Text style={styles.adminDesc}>To faculty</Text>
-              </TouchableOpacity>{" "}
+              </TouchableOpacity>
             </View>
           </View>
         )}
 
         <View style={{ height: 30 }} />
       </ScrollView>
-
-      {/* Admin Users Management Modal */}
-      <Modal
-        visible={showAdminUsersModal}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setShowAdminUsersModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowAdminUsersModal(false)}>
-              <Ionicons name="arrow-back" size={24} color="#333" />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>User Management</Text>
-            <View style={{ width: 24 }} />
-          </View>
-          <AdminUsersPanel />
-        </View>
-      </Modal>
     </View>
   );
 };

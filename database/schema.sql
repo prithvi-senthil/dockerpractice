@@ -1,6 +1,7 @@
 -- Attendance Tracking System Database Schema
 
--- Drop existing tables if they exist
+-- Drop existing tables if they exist (in reverse order of dependencies)
+DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS session_attendance;
 DROP TABLE IF EXISTS attendance_records;
@@ -11,6 +12,21 @@ DROP TABLE IF EXISTS activity_enrollments;
 DROP TABLE IF EXISTS courses;
 DROP TABLE IF EXISTS activities;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS departments;
+
+-- Departments table (created by admin/HOD)
+CREATE TABLE departments (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  hod_id BIGINT,
+  description TEXT,
+  is_active TINYINT(1) DEFAULT 1,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_hod (hod_id),
+  INDEX idx_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Users table
 CREATE TABLE users (
@@ -18,11 +34,15 @@ CREATE TABLE users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  user_type ENUM('student', 'faculty', 'admin') NOT NULL DEFAULT 'student',
+  user_type ENUM('student', 'faculty', 'admin', 'hod') NOT NULL DEFAULT 'student',
+  department VARCHAR(255),
+  report_to BIGINT NULL,
   is_active TINYINT(1) DEFAULT 1,
   push_token VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (report_to) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_report_to (report_to)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Courses table (courses created by admin and assigned to faculty)
@@ -31,6 +51,7 @@ CREATE TABLE courses (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   course_code VARCHAR(50) NOT NULL UNIQUE,
+  department_id BIGINT,
   max_students INT DEFAULT 50,
   assigned_faculty_id BIGINT NOT NULL,
   created_by BIGINT NOT NULL,
@@ -47,8 +68,10 @@ CREATE TABLE courses (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (assigned_faculty_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL,
   INDEX idx_faculty (assigned_faculty_id),
   INDEX idx_code (course_code),
+  INDEX idx_department (department_id),
   INDEX idx_assignment_status (assignment_status),
   INDEX idx_start_date (start_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -177,16 +200,23 @@ CREATE TABLE notifications (
 
 -- Insert sample users with proper bcrypt hashes
 -- All users: password = 123
-INSERT INTO users (name, email, password, user_type) VALUES
-('Admin User', 'admin@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'admin'),
-('Dr. Rajesh Kumar', 'rajesh@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
-('Prof. Priya Sharma', 'priya@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
-('Test Student Faculty', 'test-faculty@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty'),
-('Rahul Verma', 'rahul@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
-('Sneha Patel', 'sneha@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
-('Test Student', 'test-student@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
-('Arjun Singh', 'arjun@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student'),
-('Ananya Desai', 'ananya@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student');
+INSERT INTO users (name, email, password, user_type, department, report_to) VALUES
+('Admin User', 'admin@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'admin', NULL, NULL),
+('HOD Science Department', 'hod-science@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'hod', 'Science', NULL),
+('Dr. Rajesh Kumar', 'rajesh@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty', 'Science', 2),
+('Prof. Priya Sharma', 'priya@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty', 'Science', 2),
+('Test Student Faculty', 'test-faculty@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'faculty', 'Science', 2),
+('Rahul Verma', 'rahul@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student', NULL, NULL),
+('Sneha Patel', 'sneha@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student', NULL, NULL),
+('Test Student', 'test-student@college.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student', NULL, NULL),
+('Arjun Singh', 'arjun@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student', NULL, NULL),
+('Ananya Desai', 'ananya@student.edu', '$2b$10$pUWhdfb89yQXcPo0Zv3rtePHg7D9KBIZvXaKEvbYZi0Or/K0YMRtm', 'student', NULL, NULL);
+
+-- Insert sample departments (admin and HOD can create these)
+INSERT INTO departments (name, hod_id, description, created_by) VALUES
+('Science', 2, 'Science Department with Physics, Chemistry, Biology', 1),
+('Engineering', NULL, 'Computer Science and Information Technology', 1),
+('Arts', NULL, 'Liberal Arts and Humanities', 1);
 
 -- Insert sample activities
 INSERT INTO activities (title, description, owner_id, start_time, end_time, location, max_students, status) VALUES
@@ -203,6 +233,19 @@ INSERT INTO activity_enrollments (activity_id, student_id) VALUES
 -- Sample leave request
 INSERT INTO leave_requests (student_id, activity_id, leave_date, reason, status) VALUES
 (3, 1, '2026-04-07', 'Medical appointment', 'pending');
+
+-- Sample courses created by admin
+INSERT INTO courses (title, course_code, description, department_id, assigned_faculty_id, created_by, start_date, end_date, schedule_days, time_slot_start, time_slot_end, assignment_status) VALUES
+('Database Management', 'CS201', 'Advanced SQL and Database Design', 1, 3, 1, '2026-04-15', '2026-06-30', 'Monday,Wednesday,Friday', '09:00', '10:30', 'accepted'),
+('Web Development', 'CS301', 'Full Stack Web Development with React and Node.js', 1, 4, 1, '2026-04-20', '2026-07-15', 'Tuesday,Thursday', '14:00', '15:30', 'pending'),
+('Data Structures', 'CS101', 'Fundamental Data Structures and Algorithms', 1, 5, 1, '2026-05-01', '2026-07-31', 'Monday,Wednesday,Friday', '10:30', '12:00', 'accepted');
+
+-- Enroll sample students in courses
+INSERT INTO course_enrollments (course_id, student_id, enrolled_by) VALUES
+(1, 6, 1), (1, 7, 1), (1, 8, 1),
+(2, 6, 1), (2, 7, 1), (2, 9, 1),
+(3, 8, 1), (3, 9, 1), (3, 10, 1);
+
 -- System settings table (for storing configuration key-value pairs)
 CREATE TABLE IF NOT EXISTS system_settings (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,

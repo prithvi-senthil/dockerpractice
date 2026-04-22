@@ -46,6 +46,17 @@ const CourseAssignmentScreen = ({ navigation }) => {
     }
   };
 
+  const formatTime = (timeString) => {
+    if (!timeString) return "N/A";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "N/A";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
   const handleAssigneeSelection = (ids, details) => {
     setAssigneeIds(ids);
     setSelectedUsers(
@@ -229,7 +240,7 @@ const CourseAssignmentScreen = ({ navigation }) => {
               <View style={styles.metaItem}>
                 <Ionicons name="time-outline" size={16} color="#666" />
                 <Text style={styles.metaText}>
-                  {selectedCourseData.session_start_time}
+                  {formatTime(selectedCourseData.session_start_time)}
                 </Text>
               </View>
             </View>

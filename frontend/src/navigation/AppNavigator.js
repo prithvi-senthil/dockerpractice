@@ -29,6 +29,8 @@ import UserManagementScreen from "../screens/UserManagementScreen";
 import CourseDetailsScreen from "../screens/CourseDetailsScreen";
 import NotificationIcon from "../components/NotificationIcon";
 import AdminUsersPanel from "../screens/admin/AdminUsersPanel";
+import AdminCoursesScreen from "../screens/admin/AdminCoursesScreen";
+import AdminCourseDetailScreen from "../screens/admin/AdminCourseDetailScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -262,6 +264,89 @@ const AdminTabs = () => (
   </Tab.Navigator>
 );
 
+// HOD View: Dashboard, Calendar, Courses Management, Leave Requests, Profile
+const HODTabs = () => (
+  <Tab.Navigator
+    screenOptions={({ route, navigation }) => ({
+      headerShown: true,
+      headerStyle: { backgroundColor: "#fff" },
+      headerTintColor: "#7d53f6",
+      headerTitleStyle: { fontWeight: "700", fontSize: 18 },
+      tabBarShowLabel: true,
+      tabBarIcon: ({ focused, color, size }) => {
+        let iconName;
+        if (route.name === "DashboardTab")
+          iconName = focused ? "home" : "home-outline";
+        else if (route.name === "CalendarTab")
+          iconName = focused ? "calendar" : "calendar-outline";
+        else if (route.name === "CoursesTab")
+          iconName = focused ? "book" : "book-outline";
+        else if (route.name === "LeavesTab")
+          iconName = focused ? "document-text" : "document-text-outline";
+        else iconName = focused ? "person" : "person-outline";
+        return <Ionicons name={iconName} size={size || 24} color={color} />;
+      },
+      tabBarActiveTintColor: "#7d53f6",
+      tabBarInactiveTintColor: "#999",
+      tabBarLabel:
+        route.name === "DashboardTab"
+          ? "Home"
+          : route.name === "CalendarTab"
+            ? "Calendar"
+            : route.name === "CoursesTab"
+              ? "Manage Courses"
+              : route.name === "LeavesTab"
+                ? "Leave Requests"
+                : "Profile",
+      tabBarLabelStyle: {
+        fontSize: 11,
+        fontWeight: "500",
+        marginTop: 2,
+      },
+      tabBarStyle: {
+        backgroundColor: "#fff",
+        borderTopColor: "#eee",
+        borderTopWidth: 1,
+        height: 60,
+        paddingBottom: 8,
+        paddingTop: 8,
+      },
+      headerRight: () => (
+        <NotificationIcon
+          onPress={() => navigation.navigate("Notifications")}
+          tintColor="#7d53f6"
+        />
+      ),
+    })}
+  >
+    <Tab.Screen
+      name="DashboardTab"
+      component={DashboardScreen}
+      options={{ title: "HOD Dashboard" }}
+    />
+    <Tab.Screen
+      name="CalendarTab"
+      component={CalendarScreen}
+      options={{ title: "Calendar" }}
+    />
+    <Tab.Screen
+      name="CoursesTab"
+      component={AdminCoursesScreen}
+      options={{ title: "Manage Courses" }}
+    />
+    <Tab.Screen
+      name="LeavesTab"
+      component={MyLeavesScreen}
+      options={{ title: "Leave Requests" }}
+    />
+    <Tab.Screen
+      name="ProfileTab"
+      component={ProfileScreen}
+      options={{ title: "Profile" }}
+    />
+  </Tab.Navigator>
+);
+
 const AppStack = () => {
   const { user } = useAuth();
 
@@ -269,6 +354,9 @@ const AppStack = () => {
   switch (user?.user_type) {
     case "admin":
       MainTabs = AdminTabs;
+      break;
+    case "hod":
+      MainTabs = HODTabs;
       break;
     case "faculty":
       MainTabs = FacultyTabs;
@@ -406,6 +494,36 @@ const AppStack = () => {
           headerStyle: { backgroundColor: "#fff" },
           headerTintColor: "#7d53f6",
           headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminUsers"
+        component={AdminUsersPanel}
+        options={{
+          title: "User Management",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminCourses"
+        component={AdminCoursesScreen}
+        options={{
+          title: "Manage Courses",
+          headerStyle: { backgroundColor: "#fff" },
+          headerTintColor: "#7d53f6",
+          headerTitleStyle: { fontWeight: "700" },
+        }}
+      />
+
+      <Stack.Screen
+        name="AdminCourseDetail"
+        component={AdminCourseDetailScreen}
+        options={{
+          headerShown: false,
         }}
       />
 

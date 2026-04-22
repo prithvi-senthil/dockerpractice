@@ -33,7 +33,7 @@ const CreateActivityScreen = ({ navigation }) => {
   const { user } = useAuth();
 
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+
   const [courseCode, setCourseCode] = useState("");
   const [maxStudents, setMaxStudents] = useState("60");
   const [assignedFacultyId, setAssignedFacultyId] = useState("");
@@ -119,9 +119,17 @@ const CreateActivityScreen = ({ navigation }) => {
   };
 
   const formatTime = (date) => {
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
+  };
+
+  const formatTimeForAPI = (date) => {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${hours}:${minutes}`;
+    return `${hours}:${minutes}:00`;
   };
 
   const formatDate = (date) => {
@@ -171,12 +179,12 @@ const CreateActivityScreen = ({ navigation }) => {
     try {
       const payload = {
         title: title.trim(),
-        description: description.trim(),
+
         max_students: parseInt(maxStudents) || 60,
         assigned_faculty_id: parseInt(assignedFacultyId),
         schedule_days: selectedDays.join(","),
-        time_slot_start: formatTime(startTime),
-        time_slot_end: formatTime(endTime),
+        time_slot_start: formatTimeForAPI(startTime),
+        time_slot_end: formatTimeForAPI(endTime),
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
       };
@@ -190,7 +198,7 @@ const CreateActivityScreen = ({ navigation }) => {
           onPress: () => {
             setTitle("");
             setCourseCode("");
-            setDescription("");
+
             setMaxStudents("60");
             setAssignedFacultyId("");
             setAssignedFacultyName("Select Faculty...");
@@ -235,8 +243,8 @@ const CreateActivityScreen = ({ navigation }) => {
         start_date: formatDate(startDate),
         end_date: formatDate(endDate),
         schedule_days: selectedDays.join(","),
-        time_slot_start: formatTime(startTime),
-        time_slot_end: formatTime(endTime),
+        time_slot_start: formatTimeForAPI(startTime),
+        time_slot_end: formatTimeForAPI(endTime),
         course_title: title.trim(),
       };
 
@@ -286,20 +294,6 @@ const CreateActivityScreen = ({ navigation }) => {
               placeholder="e.g., CS401"
               value={courseCode}
               onChangeText={setCourseCode}
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Course description..."
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
               placeholderTextColor="#999"
             />
           </View>

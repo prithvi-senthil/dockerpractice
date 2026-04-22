@@ -14,11 +14,13 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import api from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
-const AdminUsersPanel = () => {
+const AdminUsersPanel = ({ navigation }) => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState("departments"); // "departments", "users", or "assignUsers"
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [allUsers, setAllUsers] = useState([]);
@@ -31,17 +33,38 @@ const AdminUsersPanel = () => {
     total_students: 0,
   });
   const [hods, setHods] = useState([]); // For dropdown in faculty form
+  const [departments, setDepartments] = useState([]); // For department dropdown
+  const [filteredDepartments, setFilteredDepartments] = useState([]);
+  const [departmentSearchQuery, setDepartmentSearchQuery] = useState("");
+  const [deptLoading, setDeptLoading] = useState(false);
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [selectedRole, setSelectedRole] = useState("hod"); // For creating new users
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [editingDeptId, setEditingDeptId] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     department: "",
     report_to: "",
   });
+  const [deptFormData, setDeptFormData] = useState({
+    name: "",
+    hod_id: null,
+  });
+
+  // Assign Users states
+  const [assignmentTab, setAssignmentTab] = useState("hod"); // "hod", "faculty", or "student"
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedHodForAssign, setSelectedHodForAssign] = useState("");
+  const [selectedDeptForAssign, setSelectedDeptForAssign] = useState("");
+  const [selectedFacultyForAssign, setSelectedFacultyForAssign] = useState("");
+  const [selectedHodForFaculty, setSelectedHodForFaculty] = useState("");
+  const [selectedStudentForAssign, setSelectedStudentForAssign] = useState("");
+  const [selectedDeptForStudent, setSelectedDeptForStudent] = useState("");
+  const [assignmentError, setAssignmentError] = useState("");
 
   const USER_ROLE_COLORS = {
     hod: "#EF4444",
@@ -101,6 +124,20 @@ const AdminUsersPanel = () => {
       if (roleUsers.hod?.users) {
         setHods(roleUsers.hod.users);
       }
+
+      // Fetch all departments from API
+      try {
+        const deptResponse = await api.get("/departments");
+        const deptList =
+          deptResponse.data.departments ||
+          deptResponse.data.data ||
+          deptResponse.data ||
+          [];
+        setDepartments(Array.isArray(deptList) ? deptList : []);
+      } catch (error) {
+        console.log("Failed to fetch departments:", error);
+        setDepartments([]);
+      }
     } catch (error) {
       Alert.alert(
         "Error",
@@ -148,9 +185,25 @@ const AdminUsersPanel = () => {
     await fetchAllUsers();
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchAllUsers();
+    }, []),
+  );
+
   React.useEffect(() => {
     fetchAllUsers();
   }, []);
+
+  React.useEffect(() => {
+    if (activeTab === "departments") {
+      loadDepartments();
+    }
+  }, [activeTab]);
+
+  React.useEffect(() => {
+    filterDepartments();
+  }, [departments, departmentSearchQuery]);
 
   // Handle create/edit
   const handleSaveUser = async () => {
@@ -164,19 +217,7 @@ const AdminUsersPanel = () => {
       // Role-specific validation
       if (!editingUser) {
         // Creating new user
-        if (selectedRole === "hod") {
-          if (!formData.department) {
-            Alert.alert("Validation Error", "Department is required for HOD");
-            return;
-          }
-        } else if (selectedRole === "faculty") {
-          if (!formData.department) {
-            Alert.alert(
-              "Validation Error",
-              "Department is required for Faculty",
-            );
-            return;
-          }
+        if (selectedRole === "faculty") {
           if (!formData.report_to) {
             Alert.alert(
               "Validation Error",
@@ -187,18 +228,7 @@ const AdminUsersPanel = () => {
         }
       } else {
         // Editing existing user
-        if (editingUser.role === "hod" && !formData.department) {
-          Alert.alert("Validation Error", "Department is required for HOD");
-          return;
-        }
         if (editingUser.role === "faculty") {
-          if (!formData.department) {
-            Alert.alert(
-              "Validation Error",
-              "Department is required for Faculty",
-            );
-            return;
-          }
           if (!formData.report_to) {
             Alert.alert(
               "Validation Error",
@@ -237,7 +267,14 @@ const AdminUsersPanel = () => {
         // Create new user based on selected role
         if (selectedRole === "hod") {
           url = "/admin/hods";
-          body.department = formData.department;
+          // Convert department ID to department name for backend
+          const deptId = formData.department
+            ? parseInt(formData.department)
+            : null;
+          const selectedDept = Array.isArray(departments)
+            ? departments.find((d) => d.id === deptId)
+            : null;
+          body.department = selectedDept ? selectedDept.name : "";
         } else if (selectedRole === "faculty") {
           url = "/admin/faculty";
           body.department = formData.department;
@@ -260,6 +297,13 @@ const AdminUsersPanel = () => {
       resetForm();
       setShowAddModal(false);
       await fetchAllUsers();
+
+      // Refresh departments if a HOD was created/updated
+      if (!editingUser && selectedRole === "hod") {
+        loadDepartments();
+      } else if (editingUser && editingUser.role === "hod") {
+        loadDepartments();
+      }
     } catch (error) {
       Alert.alert(
         "Error",
@@ -382,7 +426,10 @@ const AdminUsersPanel = () => {
         {item.department && (
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>Department:</Text>
-            <Text style={styles.departmentText}>{item.department}</Text>
+            <View style={styles.departmentBadge}>
+              <Ionicons name="folder" size={14} color="#EF4444" />
+              <Text style={styles.departmentBadgeText}>{item.department}</Text>
+            </View>
           </View>
         )}
 
@@ -415,6 +462,235 @@ const AdminUsersPanel = () => {
     </View>
   );
 
+  // ========== DEPARTMENT FUNCTIONS ==========
+  const loadDepartments = async () => {
+    try {
+      setDeptLoading(true);
+      const response = await api.get("/departments");
+      const deptList = response.data.departments || response.data.data || [];
+      setDepartments(deptList);
+      setFilteredDepartments(deptList);
+    } catch (error) {
+      console.error("Error loading departments:", error);
+      Alert.alert("Error", "Failed to load departments");
+    } finally {
+      setDeptLoading(false);
+    }
+  };
+
+  const filterDepartments = () => {
+    if (!departmentSearchQuery.trim()) {
+      setFilteredDepartments(departments);
+    } else {
+      const filtered = departments.filter(
+        (dept) =>
+          dept.name
+            .toLowerCase()
+            .includes(departmentSearchQuery.toLowerCase()) ||
+          (dept.hod_name &&
+            dept.hod_name
+              .toLowerCase()
+              .includes(departmentSearchQuery.toLowerCase())) ||
+          (dept.description &&
+            dept.description
+              .toLowerCase()
+              .includes(departmentSearchQuery.toLowerCase())),
+      );
+      setFilteredDepartments(filtered);
+    }
+  };
+
+  const handleDeptSubmit = async () => {
+    if (!deptFormData.name.trim()) {
+      Alert.alert("Error", "Department name is required");
+      return;
+    }
+
+    try {
+      if (editingDeptId) {
+        await api.put(`/departments/${editingDeptId}`, deptFormData);
+        Alert.alert("Success", "Department updated successfully");
+      } else {
+        await api.post("/departments", deptFormData);
+        Alert.alert("Success", "Department created successfully");
+      }
+      setShowDeptModal(false);
+      loadDepartments();
+    } catch (error) {
+      console.error("Error saving department:", error);
+      Alert.alert(
+        "Error",
+        error.response?.data?.message || "Failed to save department",
+      );
+    }
+  };
+
+  const handleDeleteDept = (id) => {
+    Alert.alert(
+      "Delete Department",
+      "Are you sure you want to delete this department?\n\nThis will remove the department from all assigned users.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.delete(`/departments/${id}`);
+              Alert.alert("Success", "Department deleted successfully");
+              loadDepartments();
+              fetchAllUsers(); // Refresh users list to show cleared departments
+            } catch (error) {
+              console.error("Error deleting department:", error);
+              Alert.alert(
+                "Error",
+                error.response?.data?.message || "Failed to delete department",
+              );
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleAssignHodToDept = async () => {
+    setAssignmentError("");
+
+    if (!selectedHodForAssign) {
+      setAssignmentError("Please select a HOD");
+      return;
+    }
+    if (!selectedDeptForAssign) {
+      setAssignmentError("Please select a Department");
+      return;
+    }
+
+    const selectedHod = Array.isArray(hods)
+      ? hods.find((h) => h.id.toString() === selectedHodForAssign)
+      : null;
+    const selectedDept = Array.isArray(departments)
+      ? departments.find((d) => d.id.toString() === selectedDeptForAssign)
+      : null;
+
+    if (!selectedHod || !selectedDept) {
+      setAssignmentError("Invalid selection");
+      return;
+    }
+
+    // Check for conflicts - if HOD is already assigned to another department
+    if (
+      selectedHod.department &&
+      selectedHod.department !== selectedDept.name
+    ) {
+      Alert.alert(
+        "Conflict Warning",
+        `HOD "${selectedHod.name}" is already assigned to "${selectedHod.department}" department.\n\nAssigning to another department will reassign them.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Continue",
+            style: "destructive",
+            onPress: () => performAssignment(selectedHod, selectedDept),
+          },
+        ],
+      );
+    } else {
+      performAssignment(selectedHod, selectedDept);
+    }
+  };
+
+  const performAssignment = async (hod, dept) => {
+    try {
+      await api.put(`/departments/${dept.id}`, {
+        name: dept.name,
+        hod_id: hod.id,
+      });
+      Alert.alert(
+        "Success",
+        `✅ Assigned "${hod.name}" to "${dept.name}" department`,
+      );
+      setSelectedHodForAssign("");
+      setSelectedDeptForAssign("");
+      setAssignmentError("");
+      loadDepartments();
+      fetchAllUsers();
+    } catch (error) {
+      setAssignmentError("Failed to assign HOD. Please try again.");
+      console.error("Assignment error:", error);
+    }
+  };
+
+  const handleOpenDeptModal = (dept = null) => {
+    if (dept) {
+      setDeptFormData({
+        name: dept.name,
+        hod_id: dept.hod_id,
+      });
+      setEditingDeptId(dept.id);
+    } else {
+      setDeptFormData({
+        name: "",
+        hod_id: null,
+      });
+      setEditingDeptId(null);
+    }
+    setShowDeptModal(true);
+  };
+
+  const renderDepartmentCard = ({ item }) => (
+    <View style={styles.userCard}>
+      {/* Header with icon and info */}
+      <View style={styles.userHeader}>
+        <View style={styles.userAvatarContainer}>
+          <View style={[styles.userAvatar, { backgroundColor: "#EF4444" }]}>
+            <Ionicons name="folder" size={24} color="#fff" />
+          </View>
+          <View style={styles.userBasicInfo}>
+            <Text style={styles.userName}>{item.name}</Text>
+            {item.hod_name && (
+              <Text style={styles.userEmail}>HOD: {item.hod_name}</Text>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Metadata section */}
+      <View style={styles.userMetadata}>
+        {item.hod_email && (
+          <View style={styles.metaItem}>
+            <Text style={styles.metaLabel}>Email:</Text>
+            <Text style={styles.reportText}>{item.hod_email}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Actions */}
+      <View style={styles.userActions}>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => handleOpenDeptModal(item)}
+          disabled={user?.user_type !== "admin"}
+        >
+          <Ionicons name="create" size={16} color="#7d53f6" />
+          <Text style={styles.actionBtnText}>
+            {user?.user_type === "admin" ? "Edit" : "View"}
+          </Text>
+        </TouchableOpacity>
+        {user?.user_type === "admin" && (
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.deleteBtn]}
+            onPress={() => handleDeleteDept(item.id)}
+          >
+            <Ionicons name="trash" size={16} color="#ff3b30" />
+            <Text style={[styles.actionBtnText, styles.deleteBtnText]}>
+              Delete
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+
   if (loading && !refreshing && allUsers.length === 0) {
     return (
       <View style={styles.container}>
@@ -425,147 +701,737 @@ const AdminUsersPanel = () => {
     );
   }
 
+  const handleGoBack = () => {
+    navigation?.goBack();
+  };
+
   return (
     <View style={styles.container}>
-      {/* Header with Stats */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>All Users</Text>
-        <Text style={styles.headerSubtitle}>
-          {filteredUsers.length} of {allUsers.length} users
-        </Text>
-        {/* Stats cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_hods}</Text>
-            <Text style={styles.statLabel}>HODs</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_faculty}</Text>
-            <Text style={styles.statLabel}>Faculty</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{summary.total_students}</Text>
-            <Text style={styles.statLabel}>Students</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchInputContainer}>
-          <Ionicons name="search" size={18} color="#999" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or email..."
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-            placeholderTextColor="#999"
+      {/* Tab Navigation */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "departments" && styles.tabActive]}
+          onPress={() => setActiveTab("departments")}
+        >
+          <Ionicons
+            name="folder"
+            size={18}
+            color={activeTab === "departments" ? "#EF4444" : "#999"}
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => handleSearchChange("")}>
-              <Ionicons name="close-circle" size={18} color="#999" />
-            </TouchableOpacity>
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "departments" && styles.tabTextActive,
+            ]}
+          >
+            Departments
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "users" && styles.tabActive]}
+          onPress={() => setActiveTab("users")}
+        >
+          <Ionicons
+            name="people"
+            size={18}
+            color={activeTab === "users" ? "#EF4444" : "#999"}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "users" && styles.tabTextActive,
+            ]}
+          >
+            Users
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === "assignUsers" && styles.tabActive]}
+          onPress={() => setActiveTab("assignUsers")}
+        >
+          <Ionicons
+            name="swap-horizontal"
+            size={18}
+            color={activeTab === "assignUsers" ? "#EF4444" : "#999"}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === "assignUsers" && styles.tabTextActive,
+            ]}
+          >
+            Assign
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Content based on active tab */}
+      {activeTab === "departments" && (
+        /* DEPARTMENTS VIEW */
+        <>
+          {/* Add Department Button */}
+          {user?.user_type === "admin" && (
+            <View style={styles.addUserButtonSection}>
+              <TouchableOpacity
+                style={styles.addUserMainBtn}
+                onPress={() => handleOpenDeptModal()}
+              >
+                <Ionicons name="add-circle" size={20} color="#fff" />
+                <Text style={styles.addUserMainBtnText}>Add Department</Text>
+              </TouchableOpacity>
+            </View>
           )}
-        </View>
-      </View>
 
-      {/* Filter Chips */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[
-            styles.filterChip,
-            activeFilter === "all" && styles.filterChipActive,
-          ]}
-          onPress={() => handleFilterChange("all")}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              activeFilter === "all" && styles.filterChipTextActive,
-            ]}
-          >
-            All ({allUsers.length})
-          </Text>
-        </TouchableOpacity>
+          {/* Department Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={18} color="#999" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search departments..."
+                value={departmentSearchQuery}
+                onChangeText={setDepartmentSearchQuery}
+                placeholderTextColor="#999"
+              />
+              {departmentSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setDepartmentSearchQuery("")}>
+                  <Ionicons name="close-circle" size={18} color="#999" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
-        <TouchableOpacity
-          style={[
-            styles.filterChip,
-            activeFilter === "hod" && styles.filterChipActive,
-          ]}
-          onPress={() => handleFilterChange("hod")}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              activeFilter === "hod" && styles.filterChipTextActive,
-            ]}
-          >
-            HOD ({summary.total_hods})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.filterChip,
-            activeFilter === "faculty" && styles.filterChipActive,
-          ]}
-          onPress={() => handleFilterChange("faculty")}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              activeFilter === "faculty" && styles.filterChipTextActive,
-            ]}
-          >
-            Faculty ({summary.total_faculty})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.filterChip,
-            activeFilter === "student" && styles.filterChipActive,
-          ]}
-          onPress={() => handleFilterChange("student")}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              activeFilter === "student" && styles.filterChipTextActive,
-            ]}
-          >
-            Student ({summary.total_students})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Users List */}
-      {filteredUsers.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="people" size={48} color="#ccc" />
-          <Text style={styles.emptyText}>No users found</Text>
-          <Text style={styles.emptySubText}>
-            {searchQuery.trim()
-              ? "Try adjusting your search"
-              : "No users in this category"}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredUsers}
-          renderItem={renderUserCard}
-          keyExtractor={(item) => item.id.toString()}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#7d53f6"
+          {/* Departments List */}
+          {filteredDepartments.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="folder-open" size={48} color="#ccc" />
+              <Text style={styles.emptyText}>
+                {departmentSearchQuery
+                  ? "No departments found"
+                  : "No departments yet"}
+              </Text>
+              <Text style={styles.emptySubText}>
+                {departmentSearchQuery
+                  ? "Try adjusting your search"
+                  : user?.user_type === "admin"
+                    ? "Tap 'Add Department' to create one"
+                    : "No departments available"}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredDepartments}
+              renderItem={renderDepartmentCard}
+              keyExtractor={(item) => item.id.toString()}
+              contentContainerStyle={styles.usersList}
+              scrollEnabled={true}
             />
-          }
-          contentContainerStyle={styles.usersList}
-          scrollEnabled={true}
-        />
+          )}
+        </>
+      )}
+
+      {activeTab === "users" && (
+        /* USERS VIEW */
+        <>
+          {/* User Statistics Cards */}
+          <View style={styles.statsCardsContainer}>
+            {/* HOD Card */}
+            <View style={[styles.statCardWrapper, styles.hodCard]}>
+              <View style={[styles.statCardGradient, styles.hodGradient]}>
+                <View style={styles.cardContent}>
+                  <View style={[styles.statIconCircle, styles.hodIconBg]}>
+                    <Ionicons name="person" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.statCount}>{summary.total_hods}</Text>
+                  <Text style={[styles.statLabel, { color: "#EF4444" }]}>
+                    HOD
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Faculty Card */}
+            <View style={[styles.statCardWrapper, styles.facultyCard]}>
+              <View style={[styles.statCardGradient, styles.facultyGradient]}>
+                <View style={styles.cardContent}>
+                  <View style={[styles.statIconCircle, styles.facultyIconBg]}>
+                    <Ionicons name="briefcase" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.statCount}>{summary.total_faculty}</Text>
+                  <Text style={[styles.statLabel, { color: "#F59E0B" }]}>
+                    Faculty
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Students Card */}
+            <View style={[styles.statCardWrapper, styles.studentCard]}>
+              <View style={[styles.statCardGradient, styles.studentGradient]}>
+                <View style={styles.cardContent}>
+                  <View style={[styles.statIconCircle, styles.studentIconBg]}>
+                    <Ionicons name="school" size={22} color="#fff" />
+                  </View>
+                  <Text style={styles.statCount}>{summary.total_students}</Text>
+                  <Text style={[styles.statLabel, { color: "#10B981" }]}>
+                    Students
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Add User Button Section */}
+          <View style={styles.addUserButtonSection}>
+            <TouchableOpacity
+              style={styles.addUserMainBtn}
+              onPress={handleAddUser}
+            >
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text style={styles.addUserMainBtnText}>Add User</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search" size={18} color="#999" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name or email..."
+                value={searchQuery}
+                onChangeText={handleSearchChange}
+                placeholderTextColor="#999"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => handleSearchChange("")}>
+                  <Ionicons name="close-circle" size={18} color="#999" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Filter Chips */}
+          <View style={styles.filterContainer}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "all" && styles.filterChipActive,
+              ]}
+              onPress={() => handleFilterChange("all")}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  activeFilter === "all" && styles.filterChipTextActive,
+                ]}
+              >
+                All ({allUsers.length})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "hod" && styles.filterChipActive,
+              ]}
+              onPress={() => handleFilterChange("hod")}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  activeFilter === "hod" && styles.filterChipTextActive,
+                ]}
+              >
+                HOD ({summary.total_hods})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "faculty" && styles.filterChipActive,
+              ]}
+              onPress={() => handleFilterChange("faculty")}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  activeFilter === "faculty" && styles.filterChipTextActive,
+                ]}
+              >
+                Faculty ({summary.total_faculty})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                activeFilter === "student" && styles.filterChipActive,
+              ]}
+              onPress={() => handleFilterChange("student")}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  activeFilter === "student" && styles.filterChipTextActive,
+                ]}
+              >
+                Student ({summary.total_students})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Users List */}
+          {filteredUsers.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="people" size={48} color="#ccc" />
+              <Text style={styles.emptyText}>No users found</Text>
+              <Text style={styles.emptySubText}>
+                {searchQuery.trim()
+                  ? "Try adjusting your search"
+                  : "No users in this category"}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredUsers}
+              renderItem={renderUserCard}
+              keyExtractor={(item) => item.id.toString()}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor="#7d53f6"
+                />
+              }
+              contentContainerStyle={styles.usersList}
+              scrollEnabled={true}
+            />
+          )}
+        </>
+      )}
+
+      {activeTab === "assignUsers" && (
+        /* ASSIGN USERS VIEW */
+        <>
+          {/* Assignment Type Selector */}
+          <View style={styles.assignmentTabSelector}>
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "hod" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("hod");
+                setAssignmentError("");
+                setSelectedHodForAssign("");
+                setSelectedDeptForAssign("");
+              }}
+            >
+              <Ionicons
+                name="people"
+                size={18}
+                color={assignmentTab === "hod" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "hod" && styles.assignmentTabTextActive,
+                ]}
+              >
+                HOD
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "faculty" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("faculty");
+                setAssignmentError("");
+                setSelectedFacultyForAssign("");
+                setSelectedHodForFaculty("");
+              }}
+            >
+              <Ionicons
+                name="person"
+                size={18}
+                color={assignmentTab === "faculty" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "faculty" && styles.assignmentTabTextActive,
+                ]}
+              >
+                Faculty
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "student" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("student");
+                setAssignmentError("");
+                setSelectedStudentForAssign("");
+                setSelectedDeptForStudent("");
+              }}
+            >
+              <Ionicons
+                name="school"
+                size={18}
+                color={assignmentTab === "student" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "student" && styles.assignmentTabTextActive,
+                ]}
+              >
+                Students
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.assignContainer}>
+            {/* ASSIGN HOD SECTION */}
+            {assignmentTab === "hod" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#EF4444" },
+                    ]}
+                  >
+                    <Ionicons name="people" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>Assign HOD</Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link HODs to departments
+                    </Text>
+                  </View>
+                </View>
+
+                {/* HOD Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select HOD *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedHodForAssign}
+                      onValueChange={(value) => {
+                        setSelectedHodForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose a HOD..." value="" />
+                      {Array.isArray(hods) && hods.length > 0 ? (
+                        hods.map((hod) => {
+                          const isAssigned = hod.department ? true : false;
+                          return (
+                            <Picker.Item
+                              key={hod.id}
+                              label={`${hod.name}${isAssigned ? ` (In ${hod.department})` : ""}`}
+                              value={hod.id.toString()}
+                              enabled={!isAssigned}
+                            />
+                          );
+                        })
+                      ) : (
+                        <Picker.Item label="No HODs available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Department Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Department *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedDeptForAssign}
+                      onValueChange={(value) => {
+                        setSelectedDeptForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose a Department..." value="" />
+                      {Array.isArray(departments) && departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <Picker.Item
+                            key={dept.id}
+                            label={`${dept.name}${dept.hod_name ? ` (${dept.hod_name})` : " (Unassigned)"}`}
+                            value={dept.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item
+                          label="No departments available"
+                          value=""
+                        />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Error Message */}
+                {assignmentError ? (
+                  <View style={styles.errorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#ff3b30" />
+                    <Text style={styles.errorText}>{assignmentError}</Text>
+                  </View>
+                ) : null}
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedHodForAssign ||
+                    !selectedDeptForAssign ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={handleAssignHodToDept}
+                  disabled={
+                    !selectedHodForAssign ||
+                    !selectedDeptForAssign ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign HOD</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ASSIGN FACULTY SECTION */}
+            {assignmentTab === "faculty" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#F59E0B" },
+                    ]}
+                  >
+                    <Ionicons name="person" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>
+                      Assign Faculty
+                    </Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link Faculty to HODs
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Faculty Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Faculty *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedFacultyForAssign}
+                      onValueChange={(value) => {
+                        setSelectedFacultyForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Faculty..." value="" />
+                      {Array.isArray(allUsers) && allUsers.length > 0 ? (
+                        allUsers
+                          .filter((u) => u.role === "faculty")
+                          .map((faculty) => (
+                            <Picker.Item
+                              key={faculty.id}
+                              label={`${faculty.name}${faculty.department ? ` (${faculty.department})` : ""}`}
+                              value={faculty.id.toString()}
+                            />
+                          ))
+                      ) : (
+                        <Picker.Item label="No faculty available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* HOD Picker for Faculty */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Reports to HOD *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedHodForFaculty}
+                      onValueChange={(value) => {
+                        setSelectedHodForFaculty(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose HOD..." value="" />
+                      {Array.isArray(hods) && hods.length > 0 ? (
+                        hods.map((hod) => (
+                          <Picker.Item
+                            key={hod.id}
+                            label={`${hod.name}${hod.department ? ` (${hod.department})` : ""}`}
+                            value={hod.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item label="No HODs available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedFacultyForAssign ||
+                    !selectedHodForFaculty ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={() => {}}
+                  disabled={
+                    !selectedFacultyForAssign ||
+                    !selectedHodForFaculty ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign Faculty</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ASSIGN STUDENT SECTION */}
+            {assignmentTab === "student" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#10B981" },
+                    ]}
+                  >
+                    <Ionicons name="school" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>
+                      Assign Students
+                    </Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link Students to departments
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Student Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Student *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedStudentForAssign}
+                      onValueChange={(value) => {
+                        setSelectedStudentForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Student..." value="" />
+                      {Array.isArray(allUsers) && allUsers.length > 0 ? (
+                        allUsers
+                          .filter((u) => u.role === "student")
+                          .map((student) => (
+                            <Picker.Item
+                              key={student.id}
+                              label={`${student.name}${student.department ? ` (${student.department})` : ""}`}
+                              value={student.id.toString()}
+                            />
+                          ))
+                      ) : (
+                        <Picker.Item label="No students available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Department Picker for Student */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Department *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedDeptForStudent}
+                      onValueChange={(value) => {
+                        setSelectedDeptForStudent(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Department..." value="" />
+                      {Array.isArray(departments) && departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <Picker.Item
+                            key={dept.id}
+                            label={dept.name}
+                            value={dept.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item
+                          label="No departments available"
+                          value=""
+                        />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedStudentForAssign ||
+                    !selectedDeptForStudent ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={() => {}}
+                  disabled={
+                    !selectedStudentForAssign ||
+                    !selectedDeptForStudent ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign Student</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </>
       )}
 
       {/* Add/Edit User Modal */}
@@ -585,6 +1451,43 @@ const AdminUsersPanel = () => {
                 <Ionicons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
+
+            {/* User Info Display Section */}
+            {(editingUser && editingUser.name) || formData.name ? (
+              <View style={styles.userInfoDisplay}>
+                <View style={styles.roleIconContainer}>
+                  <View
+                    style={[
+                      styles.roleBadgeDisplay,
+                      {
+                        backgroundColor:
+                          USER_ROLE_COLORS[editingUser?.role || selectedRole],
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        editingUser?.role === "hod"
+                          ? "people"
+                          : editingUser?.role === "faculty"
+                            ? "person"
+                            : "school"
+                      }
+                      size={20}
+                      color="#fff"
+                    />
+                  </View>
+                </View>
+                <View style={styles.userInfoText}>
+                  <Text style={styles.userInfoName}>
+                    {formData.name || editingUser?.name || "New User"}
+                  </Text>
+                  <Text style={styles.userInfoRole}>
+                    {USER_ROLE_LABELS[editingUser?.role || selectedRole]}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
 
             <ScrollView style={styles.formContainer}>
               {/* Role Selector (only when creating new user) */}
@@ -632,35 +1535,18 @@ const AdminUsersPanel = () => {
                     setFormData({ ...formData, email: text })
                   }
                   keyboardType="email-address"
-                  editable={!editingUser} // Email not editable when editing
                 />
-                {editingUser && (
-                  <Text style={styles.helperText}>Email cannot be changed</Text>
-                )}
               </View>
 
               {/* Department (for HOD and Faculty) */}
-              {(selectedRole === "hod" || selectedRole === "faculty") && (
+              {selectedRole === "faculty" && (
                 <View style={styles.formGroup}>
-                  <Text style={styles.label}>
-                    {selectedRole === "hod" ? "Department *" : "Department"}
-                  </Text>
-                  {selectedRole === "hod" ? (
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g., Computer Science"
-                      value={formData.department}
-                      onChangeText={(text) =>
-                        setFormData({ ...formData, department: text })
-                      }
-                    />
-                  ) : (
-                    <View style={styles.input}>
-                      <Text style={styles.departmentReadOnly}>
-                        {formData.department || "Auto-filled by HOD"}
-                      </Text>
-                    </View>
-                  )}
+                  <Text style={styles.label}>Department</Text>
+                  <View style={styles.input}>
+                    <Text style={styles.departmentReadOnly}>
+                      {formData.department || "Auto-filled by HOD"}
+                    </Text>
+                  </View>
                 </View>
               )}
 
@@ -737,89 +1623,250 @@ const AdminUsersPanel = () => {
         </View>
       </Modal>
 
-      {/* FAB - Add User Button */}
-      <TouchableOpacity style={styles.fab} onPress={handleAddUser}>
-        <Ionicons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
+      {/* Department Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showDeptModal}
+        onRequestClose={() => setShowDeptModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {editingDeptId ? "Edit Department" : "Add Department"}
+              </Text>
+              <TouchableOpacity onPress={() => setShowDeptModal(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.formContainer}>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Department Name *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Computer Science"
+                  value={deptFormData.name}
+                  onChangeText={(text) =>
+                    setDeptFormData({ ...deptFormData, name: text })
+                  }
+                  editable={user?.user_type === "admin" || !editingDeptId}
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.formActions}>
+              <TouchableOpacity
+                style={[styles.formBtn, styles.cancelBtn]}
+                onPress={() => setShowDeptModal(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.formBtn, styles.saveBtn]}
+                onPress={handleDeptSubmit}
+              >
+                <Text style={styles.saveBtnText}>
+                  {editingDeptId ? "Update Department" : "Create Department"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  safeContainer: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f5f5f5",
   },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+  tabBar: {
+    flexDirection: "row",
     backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    elevation: 2,
   },
-  loadingContainer: {
+  tab: {
     flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+    borderBottomWidth: 3,
+    borderBottomColor: "transparent",
+  },
+  tabActive: {
+    borderBottomColor: "#EF4444",
+    backgroundColor: "rgba(239, 68, 68, 0.02)",
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#999",
+  },
+  tabTextActive: {
+    color: "#EF4444",
+  },
+  statsCardsContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    paddingTop: 14,
+    backgroundColor: "#fafbff",
+    gap: 10,
+  },
+  statCardWrapper: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  hodCard: {
+    backgroundColor: "#fff",
+    borderLeftWidth: 2,
+    borderLeftColor: "#EF4444",
+  },
+  hodGradient: {
+    backgroundColor: "#fef2f2",
+  },
+  facultyCard: {
+    backgroundColor: "#fff",
+    borderLeftWidth: 2,
+    borderLeftColor: "#F59E0B",
+  },
+  facultyGradient: {
+    backgroundColor: "#fffbf0",
+  },
+  studentCard: {
+    backgroundColor: "#fff",
+    borderLeftWidth: 2,
+    borderLeftColor: "#10B981",
+  },
+  studentGradient: {
+    backgroundColor: "#f0fdf4",
+  },
+  statCardGradient: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  cardContent: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  cardLabel: {
+    flex: 1,
+  },
+  cardLabelText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#999",
+    letterSpacing: 1.2,
+  },
+  statIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 9,
     justifyContent: "center",
     alignItems: "center",
+    marginBottom: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  errorText: {
-    fontSize: 18,
+  hodIconBg: {
+    backgroundColor: "#EF4444",
+  },
+  facultyIconBg: {
+    backgroundColor: "#F59E0B",
+  },
+  studentIconBg: {
+    backgroundColor: "#10B981",
+  },
+  statCount: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#1a1a1a",
+    letterSpacing: -0.5,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: "#555",
     fontWeight: "700",
-    color: "#333",
-    marginTop: 12,
+    letterSpacing: 0.3,
   },
-  errorSubtext: {
-    fontSize: 14,
-    color: "#999",
+  statSubtext: {
+    fontSize: 11,
+    color: "#a0a0a0",
+    fontWeight: "500",
     marginTop: 4,
+    letterSpacing: 0.2,
   },
-  header: {
-    paddingHorizontal: 15,
+  statInfo: {
+    justifyContent: "flex-end",
+  },
+  statName: {
+    fontSize: 11,
+    color: "#888",
+    fontWeight: "600",
+    marginTop: 4,
+    letterSpacing: 0.3,
+  },
+  addUserButtonSection: {
+    paddingHorizontal: 24,
     paddingVertical: 12,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#333",
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 3,
-    marginBottom: 12,
-  },
-  statsContainer: {
+  addUserMainBtn: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginHorizontal: 3,
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7d53f6",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 8,
   },
-  statNumber: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#7d53f6",
-  },
-  statLabel: {
-    fontSize: 10,
-    color: "#999",
-    marginTop: 2,
+  addUserMainBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
   searchContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 6,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   searchInputContainer: {
     flexDirection: "row",
@@ -827,12 +1874,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    width: "100%",
   },
   searchInput: {
     flex: 1,
     marginHorizontal: 8,
-    fontSize: 14,
+    fontSize: 13,
     color: "#333",
   },
   filterContainer: {
@@ -959,6 +2007,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
+  departmentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fef2f2",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: "#EF4444",
+  },
+  departmentBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
   departmentText: {
     fontSize: 12,
     color: "#666",
@@ -977,37 +2041,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 6,
-    backgroundColor: "#f3e8ff",
-    gap: 4,
+    backgroundColor: "#F3E8FF",
+    gap: 6,
+    minHeight: 40,
   },
   deleteBtn: {
     backgroundColor: "#fee2e2",
   },
   actionBtnText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "700",
     color: "#7d53f6",
+    flexShrink: 1,
   },
   deleteBtnText: {
     color: "#ff3b30",
-  },
-  fab: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#7d53f6",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -1035,82 +2086,366 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#333",
   },
+  userInfoDisplay: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#f8f6ff",
+    marginBottom: 16,
+    gap: 12,
+  },
+  roleIconContainer: {
+    alignItems: "center",
+  },
+  roleBadgeDisplay: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  userInfoText: {
+    flex: 1,
+  },
+  userInfoName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 2,
+  },
+  userInfoRole: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#666",
+  },
   formContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
   },
   formGroup: {
-    marginBottom: 15,
+    marginBottom: 18,
   },
   label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderWidth: 1.5,
+    borderColor: "#e8e8e8",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     fontSize: 14,
     color: "#333",
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#fafafa",
+    fontWeight: "500",
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: "#e0e0e0",
+    borderColor: "#ddd",
     borderRadius: 8,
-    backgroundColor: "#f9f9f9",
+    backgroundColor: "#fafafa",
     overflow: "hidden",
+    height: 44,
+    justifyContent: "center",
   },
   picker: {
     fontSize: 14,
     color: "#333",
+    fontWeight: "500",
   },
   departmentReadOnly: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     fontSize: 14,
-    color: "#999",
+    color: "#666",
+    fontWeight: "500",
   },
   helperText: {
-    fontSize: 11,
+    fontSize: 12,
     color: "#999",
-    marginTop: 4,
+    marginTop: 6,
+    fontWeight: "400",
     fontStyle: "italic",
   },
   formActions: {
     flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 15,
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
   },
   formBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   cancelBtn: {
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f0f0f0",
   },
   cancelBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#333",
   },
   saveBtn: {
     backgroundColor: "#7d53f6",
   },
   saveBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
     color: "#fff",
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#999",
+    marginTop: 12,
+  },
+  emptySubText: {
+    fontSize: 13,
+    color: "#bbb",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  formLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#666",
+    marginBottom: 8,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 16,
+    fontSize: 14,
+    backgroundColor: "#fff",
+    color: "#333",
+  },
+  formTextArea: {
+    height: 100,
+    textAlignVertical: "top",
+  },
+  modalFormContent: {
+    padding: 16,
+  },
+  // Assign Users Tab Styles
+  assignContainer: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  assignSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+  },
+  assignHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  assignIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  assignTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  assignHeaderText: {
+    flex: 1,
+  },
+  assignSubtitle: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  assignSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 2,
+    borderBottomColor: "#f0f0f0",
+  },
+  assignSectionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  assignSectionHeaderText: {
+    flex: 1,
+  },
+  assignSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  assignSectionSubtitle: {
+    fontSize: 11,
+    color: "#999",
+    marginTop: 2,
+  },
+  assignmentSummaryCard: {
+    flexDirection: "row",
+    backgroundColor: "#f8f9fa",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  summaryItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  summaryBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  summaryCount: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+  },
+  summaryDivider: {
+    width: 1,
+    backgroundColor: "#d1d5db",
+    marginHorizontal: 8,
+  },
+  selectedInfoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f9ff",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#0ea5e9",
+    gap: 8,
+  },
+  selectedInfoText: {
+    fontSize: 13,
+    color: "#0369a1",
+    fontWeight: "500",
+    flex: 1,
+  },
+  readyIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0fdf4",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: "#10B981",
+    gap: 8,
+  },
+  readyText: {
+    fontSize: 13,
+    color: "#047857",
+    fontWeight: "500",
+  },
+  assignBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7d53f6",
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginTop: 24,
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  assignBtnDisabled: {
+    backgroundColor: "#cbd5e1",
+    opacity: 0.6,
+  },
+  assignBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fee2e2",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: "#ff3b30",
+    gap: 8,
+  },
+  errorText: {
+    fontSize: 13,
+    color: "#ff3b30",
+    fontWeight: "600",
+    flex: 1,
   },
 });
 

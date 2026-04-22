@@ -15,7 +15,8 @@ import {
 import { Picker } from "@react-native-picker/picker";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import { courseAPI, userAPI } from "../services/api";
+import api from "../services/api";
+import { courseAPI } from "../services/api";
 
 const DAYS_OF_WEEK = [
   { label: "Mon", value: 1 },
@@ -31,8 +32,8 @@ const CreateCourseScreen = ({ navigation }) => {
   // Form States
   const [courseCode, setCourseCode] = useState("");
   const [courseName, setCourseName] = useState("");
-  const [description, setDescription] = useState("");
-  const [facultyId, setFacultyId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [hodId, setHodId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [sessionDays, setSessionDays] = useState([]);
@@ -41,8 +42,10 @@ const CreateCourseScreen = ({ navigation }) => {
 
   // UI States
   const [loading, setLoading] = useState(false);
-  const [faculty, setFaculty] = useState([]);
-  const [showFacultyModal, setShowFacultyModal] = useState(false);
+  const [departments, setDepartments] = useState([]);
+  const [hods, setHods] = useState([]);
+  const [showDepartmentModal, setShowDepartmentModal] = useState(false);
+  const [showHodModal, setShowHodModal] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
@@ -52,17 +55,64 @@ const CreateCourseScreen = ({ navigation }) => {
   const [tempStartTime, setTempStartTime] = useState(new Date());
   const [tempEndTime, setTempEndTime] = useState(new Date());
 
+  // Working hours state
+  const [workingHoursStart, setWorkingHoursStart] = useState("08:00");
+  const [workingHoursEnd, setWorkingHoursEnd] = useState("17:00");
+  const [workingHoursEnabled, setWorkingHoursEnabled] = useState(true);
+
   useEffect(() => {
-    loadFaculty();
+    loadDepartments();
+    loadHods();
+    fetchWorkingHours();
   }, []);
 
-  const loadFaculty = async () => {
+  const loadDepartments = async () => {
     try {
-      const response = await userAPI.getAssignableUsers({ limit: 100 });
-      setFaculty(response || []);
+      const response = await api.get("/departments");
+      setDepartments(response.data.departments || response.data.data || []);
     } catch (error) {
-      console.error("Load faculty error:", error);
-      Alert.alert("Error", "Failed to load faculty members");
+      console.error("Load departments error:", error);
+      Alert.alert("Error", "Failed to load departments");
+    }
+  };
+
+  const loadHods = async () => {
+    try {
+      const response = await api.get("/admin/users");
+      // Extract HODs from the structured response
+      const hodList = response.data.users_by_role?.hod?.users || [];
+      setHods(hodList);
+    } catch (error) {
+      console.error("Load HODs error:", error);
+      Alert.alert("Error", "Failed to load HOD members");
+    }
+  };
+
+  const handleDepartmentSelect = (dept) => {
+    setDepartmentId(dept.id.toString());
+    setShowDepartmentModal(false);
+    // Auto-select HOD if department has one assigned
+    if (dept.hod_id) {
+      setHodId(dept.hod_id.toString());
+    } else {
+      setHodId("");
+    }
+  };
+
+  const fetchWorkingHours = async () => {
+    try {
+      const response = await api.get("/settings/working-hours");
+      if (response.data) {
+        setWorkingHoursEnabled(response.data.enabled ?? true);
+        setWorkingHoursStart(response.data.start_time || "08:00");
+        setWorkingHoursEnd(response.data.end_time || "17:00");
+      }
+    } catch (error) {
+      console.error("Fetch working hours error:", error);
+      // Use defaults
+      setWorkingHoursEnabled(true);
+      setWorkingHoursStart("08:00");
+      setWorkingHoursEnd("17:00");
     }
   };
 
@@ -79,6 +129,17 @@ const CreateCourseScreen = ({ navigation }) => {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
     return `${hours}:${minutes}:00`;
+  };
+
+  const formatTimeDisplay = (timeString) => {
+    if (!timeString) return "00:00";
+    const match = String(timeString).match(/(\d{1,2}):(\d{2})/);
+    if (!match) return "00:00";
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    return `${displayHours}:${minutes} ${ampm}`;
   };
 
   const parseDateTimeLocal = (ymd, hhmmss) => {
@@ -140,6 +201,17 @@ const CreateCourseScreen = ({ navigation }) => {
     }
   };
 
+  const compareNotaryTimes = (time1, time2) => {
+    // Returns: -1 if time1 < time2, 0 if equal, 1 if time1 > time2
+    const [h1, m1] = time1.split(":").map(Number);
+    const [h2, m2] = time2.split(":").map(Number);
+    const mins1 = h1 * 60 + m1;
+    const mins2 = h2 * 60 + m2;
+    if (mins1 < mins2) return -1;
+    if (mins1 > mins2) return 1;
+    return 0;
+  };
+
   const handleCreateCourse = async () => {
     // Validation
     if (!courseCode.trim() || !courseName.trim()) {
@@ -147,13 +219,13 @@ const CreateCourseScreen = ({ navigation }) => {
       return;
     }
 
-    if (!description.trim()) {
-      Alert.alert("Error", "Course description is required");
+    if (!departmentId) {
+      Alert.alert("Error", "Please select a department");
       return;
     }
 
-    if (!facultyId) {
-      Alert.alert("Error", "Please select faculty in charge");
+    if (!hodId) {
+      Alert.alert("Error", "Please select a HOD");
       return;
     }
 
@@ -172,13 +244,36 @@ const CreateCourseScreen = ({ navigation }) => {
       return;
     }
 
+    // Validate session times are within working hours
+    if (workingHoursEnabled) {
+      const sessionStartHHMM = sessionStartTime.substring(0, 5);
+      const sessionEndHHMM = sessionEndTime.substring(0, 5);
+
+      const startBeforeWorkingHours =
+        compareNotaryTimes(sessionStartHHMM, workingHoursStart) < 0;
+      const endAfterWorkingHours =
+        compareNotaryTimes(sessionEndHHMM, workingHoursEnd) > 0;
+
+      if (startBeforeWorkingHours || endAfterWorkingHours) {
+        Alert.alert(
+          "⏰ Session Time Outside Working Hours",
+          `Sessions must be scheduled between ${formatTimeDisplay(workingHoursStart)} and ${formatTimeDisplay(workingHoursEnd)}.\n\n` +
+            `Your session: ${formatTimeDisplay(sessionStartHHMM)} - ${formatTimeDisplay(sessionEndHHMM)}\n\n` +
+            `Please adjust the session times to fall within the configured working hours.`,
+          [{ text: "OK" }],
+          { cancelable: false },
+        );
+        return;
+      }
+    }
+
     try {
       setLoading(true);
 
       const courseData = {
         title: courseName.trim(),
-        description: description.trim(),
-        assigned_faculty_id: parseInt(facultyId),
+        assigned_faculty_id: parseInt(hodId),
+        department_id: parseInt(departmentId),
         start_date: startDate,
         end_date: endDate,
         schedule_days: sessionDays.join(","),
@@ -245,43 +340,119 @@ const CreateCourseScreen = ({ navigation }) => {
           />
         </View>
 
-        {/* Description */}
+        {/* Department */}
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Description *</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Detailed course description..."
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-            placeholderTextColor="#b0bec5"
-          />
-        </View>
-
-        {/* Faculty In Charge */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Faculty In Charge *</Text>
+          <Text style={styles.label}>Department *</Text>
           <TouchableOpacity
             style={styles.facDropdownButton}
-            onPress={() => setShowFacultyModal(true)}
+            onPress={() => setShowDepartmentModal(true)}
           >
-            <Ionicons name="person" size={20} color="#7d53f6" />
+            <Ionicons name="folder" size={20} color="#7d53f6" />
             <Text
               style={[
                 styles.facDropdownText,
-                !facultyId && styles.placeholderText,
+                !departmentId && styles.placeholderText,
               ]}
             >
-              {facultyId
-                ? faculty.find((f) => f.id.toString() === facultyId)?.name ||
-                  "Select Faculty Member"
-                : "Select Faculty Member"}
+              {departmentId
+                ? departments.find((d) => d.id.toString() === departmentId)
+                    ?.name || "Select Department"
+                : "Select Department"}
             </Text>
             <Ionicons name="chevron-down" size={20} color="#999" />
           </TouchableOpacity>
-          {facultyId && (
+          {departmentId && (
+            <Ionicons
+              name="checkmark"
+              size={18}
+              color="#7d53f6"
+              style={styles.facCheckmark}
+            />
+          )}
+          <Text style={styles.hint}>Select the department for this course</Text>
+        </View>
+
+        {/* Department Modal Dropdown */}
+        <Modal
+          visible={showDepartmentModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDepartmentModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.facModalContent}>
+              {/* Modal Header */}
+              <View style={styles.facModalHeader}>
+                <TouchableOpacity onPress={() => setShowDepartmentModal(false)}>
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+                <Text style={styles.facModalTitle}>Select Department</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              {/* Department List */}
+              <FlatList
+                data={departments}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.facListItem,
+                      departmentId === item.id.toString() &&
+                        styles.facListItemActive,
+                    ]}
+                    onPress={() => handleDepartmentSelect(item)}
+                  >
+                    <Ionicons name="folder" size={40} color="#7d53f6" />
+                    <View style={styles.facItemContent}>
+                      <Text
+                        style={[
+                          styles.facItemName,
+                          departmentId === item.id.toString() &&
+                            styles.facItemNameActive,
+                        ]}
+                      >
+                        {item.name}
+                      </Text>
+                      <Text style={styles.facItemEmail}>
+                        {item.hod_name
+                          ? `HOD: ${item.hod_name}`
+                          : "No HOD assigned"}
+                      </Text>
+                    </View>
+                    {departmentId === item.id.toString() && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={24}
+                        color="#7d53f6"
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* HOD */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>HOD *</Text>
+          <TouchableOpacity
+            style={styles.facDropdownButton}
+            onPress={() => setShowHodModal(true)}
+          >
+            <Ionicons name="person" size={20} color="#7d53f6" />
+            <Text
+              style={[styles.facDropdownText, !hodId && styles.placeholderText]}
+            >
+              {hodId
+                ? hods.find((h) => h.id.toString() === hodId)?.name ||
+                  "Select HOD"
+                : "Select HOD"}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#999" />
+          </TouchableOpacity>
+          {hodId && (
             <Ionicons
               name="checkmark"
               size={18}
@@ -290,42 +461,41 @@ const CreateCourseScreen = ({ navigation }) => {
             />
           )}
           <Text style={styles.hint}>
-            Faculty member responsible for this course
+            Department HOD responsible for this course
           </Text>
         </View>
 
-        {/* Faculty Modal Dropdown */}
+        {/* HOD Modal Dropdown */}
         <Modal
-          visible={showFacultyModal}
+          visible={showHodModal}
           transparent
           animationType="slide"
-          onRequestClose={() => setShowFacultyModal(false)}
+          onRequestClose={() => setShowHodModal(false)}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.facModalContent}>
               {/* Modal Header */}
               <View style={styles.facModalHeader}>
-                <TouchableOpacity onPress={() => setShowFacultyModal(false)}>
+                <TouchableOpacity onPress={() => setShowHodModal(false)}>
                   <Ionicons name="close" size={24} color="#333" />
                 </TouchableOpacity>
-                <Text style={styles.facModalTitle}>Select Faculty</Text>
+                <Text style={styles.facModalTitle}>Select HOD</Text>
                 <View style={{ width: 24 }} />
               </View>
 
-              {/* Faculty List */}
+              {/* HOD List */}
               <FlatList
-                data={faculty}
+                data={hods}
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={[
                       styles.facListItem,
-                      facultyId === item.id.toString() &&
-                        styles.facListItemActive,
+                      hodId === item.id.toString() && styles.facListItemActive,
                     ]}
                     onPress={() => {
-                      setFacultyId(item.id.toString());
-                      setShowFacultyModal(false);
+                      setHodId(item.id.toString());
+                      setShowHodModal(false);
                     }}
                   >
                     <Ionicons name="person-circle" size={40} color="#7d53f6" />
@@ -333,7 +503,7 @@ const CreateCourseScreen = ({ navigation }) => {
                       <Text
                         style={[
                           styles.facItemName,
-                          facultyId === item.id.toString() &&
+                          hodId === item.id.toString() &&
                             styles.facItemNameActive,
                         ]}
                       >
@@ -341,7 +511,7 @@ const CreateCourseScreen = ({ navigation }) => {
                       </Text>
                       <Text style={styles.facItemEmail}>{item.email}</Text>
                     </View>
-                    {facultyId === item.id.toString() && (
+                    {hodId === item.id.toString() && (
                       <Ionicons
                         name="checkmark-circle"
                         size={24}
@@ -458,7 +628,7 @@ const CreateCourseScreen = ({ navigation }) => {
                     !sessionStartTime && styles.placeholderText,
                   ]}
                 >
-                  {sessionStartTime || "00:00"}
+                  {formatTimeDisplay(sessionStartTime) || "12:00 AM"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -476,7 +646,7 @@ const CreateCourseScreen = ({ navigation }) => {
                     !sessionEndTime && styles.placeholderText,
                   ]}
                 >
-                  {sessionEndTime || "00:00"}
+                  {formatTimeDisplay(sessionEndTime) || "12:00 AM"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -498,6 +668,17 @@ const CreateCourseScreen = ({ navigation }) => {
               display="default"
               onChange={onEndTimeChange}
             />
+          )}
+
+          {/* Working Hours Info */}
+          {workingHoursEnabled && (
+            <View style={styles.workingHoursInfo}>
+              <Ionicons name="time-outline" size={18} color="#7d53f6" />
+              <Text style={styles.workingHoursText}>
+                Working hours: {formatTimeDisplay(workingHoursStart)} -{" "}
+                {formatTimeDisplay(workingHoursEnd)}
+              </Text>
+            </View>
           )}
         </View>
 
@@ -803,6 +984,23 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     letterSpacing: 0.5,
+  },
+  workingHoursInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f4ff",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: "#7d53f6",
+  },
+  workingHoursText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#5b21b6",
+    marginLeft: 10,
   },
 });
 

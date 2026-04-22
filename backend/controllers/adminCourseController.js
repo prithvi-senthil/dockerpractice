@@ -17,29 +17,48 @@ const auditLog = require("../utils/auditLog");
  */
 exports.getAllCoursesAsAdmin = async (req, res) => {
   try {
+    // Get all courses with faculty/hod names and department info
     const [courses] = await db.query(
-      `SELECT c.*, 
-              u.name as hod_name,
+      `SELECT c.id, c.title, c.course_code as code, c.description, c.start_date, c.end_date,
+              c.assignment_status as approval_status, c.created_at, c.assigned_faculty_id,
+              c.department_id,
               f.name as faculty_name,
-              COUNT(DISTINCT ce.id) as total_students,
-              SUM(CASE WHEN c.approval_status = 'PENDING' THEN 1 ELSE 0 END) as pending_courses
+              d.name as department_name
        FROM courses c
-       LEFT JOIN users u ON c.hod_id = u.id
        LEFT JOIN users f ON c.assigned_faculty_id = f.id
-       LEFT JOIN course_enrollments ce ON c.id = ce.course_id
-       GROUP BY c.id
+       LEFT JOIN departments d ON c.department_id = d.id
        ORDER BY c.created_at DESC`,
     );
 
+    // Get student enrollment counts for each course
+    const coursesWithEnrollments = await Promise.all(
+      courses.map(async (course) => {
+        const [enrollments] = await db.query(
+          `SELECT COUNT(DISTINCT ce.student_id) as total_students
+           FROM course_enrollments ce
+           WHERE ce.course_id = ?`,
+          [course.id],
+        );
+        return {
+          ...course,
+          total_students: enrollments[0]?.total_students || 0,
+        };
+      }),
+    );
+
     res.json({
-      courses,
-      total_count: courses.length,
+      courses: coursesWithEnrollments,
+      total_count: coursesWithEnrollments.length,
       by_status: {
-        pending: courses.filter((c) => c.approval_status === "PENDING").length,
-        approved: courses.filter((c) => c.approval_status === "APPROVED")
-          .length,
-        rejected: courses.filter((c) => c.approval_status === "REJECTED")
-          .length,
+        pending: coursesWithEnrollments.filter(
+          (c) => c.approval_status === "pending",
+        ).length,
+        approved: coursesWithEnrollments.filter(
+          (c) => c.approval_status === "accepted",
+        ).length,
+        rejected: coursesWithEnrollments.filter(
+          (c) => c.approval_status === "rejected",
+        ).length,
       },
     });
   } catch (error) {
@@ -56,18 +75,13 @@ exports.getCourseDetailsAsAdmin = async (req, res) => {
     const courseId = req.params.id;
 
     const [courses] = await db.query(
-      `SELECT c.*,
-              u.name as hod_name,
-              u.email as hod_email,
-              f.name as faculty_name,
-              f.email as faculty_email,
-              COUNT(DISTINCT ce.id) as enrolled_students
+      `SELECT c.id, c.title, c.course_code as code, c.description, 
+              c.start_date, c.end_date, c.assignment_status as approval_status,
+              c.status, c.created_at, c.assigned_faculty_id,
+              f.name as faculty_name, f.email as faculty_email
        FROM courses c
-       LEFT JOIN users u ON c.hod_id = u.id
        LEFT JOIN users f ON c.assigned_faculty_id = f.id
-       LEFT JOIN course_enrollments ce ON c.id = ce.course_id
-       WHERE c.id = ?
-       GROUP BY c.id`,
+       WHERE c.id = ?`,
       [courseId],
     );
 
@@ -77,7 +91,15 @@ exports.getCourseDetailsAsAdmin = async (req, res) => {
 
     const course = courses[0];
 
-    // Get enrolled students
+    // Get student enrollment count
+    const [enrollmentData] = await db.query(
+      `SELECT COUNT(DISTINCT student_id) as total_students
+       FROM course_enrollments
+       WHERE course_id = ?`,
+      [courseId],
+    );
+
+    // Get enrolled students list
     const [students] = await db.query(
       `SELECT u.id, u.name, u.email FROM course_enrollments ce
        JOIN users u ON ce.student_id = u.id
@@ -87,9 +109,9 @@ exports.getCourseDetailsAsAdmin = async (req, res) => {
     );
 
     res.json({
-      course,
+      ...course,
+      total_students: enrollmentData[0]?.total_students || 0,
       students,
-      student_count: students.length,
     });
   } catch (error) {
     console.error("Get course details error:", error);
@@ -121,12 +143,10 @@ exports.approveCourseAsAdmin = async (req, res) => {
     // Update course status
     await db.query(
       `UPDATE courses 
-       SET approval_status = 'APPROVED',
-           approved_by = ?,
-           approved_at = NOW(),
-           approval_notes = ?
+       SET assignment_status = 'accepted',
+           accepted_at = NOW()
        WHERE id = ?`,
-      [adminId, approval_notes || null, courseId],
+      [courseId],
     );
 
     // Log admin action
@@ -136,15 +156,15 @@ exports.approveCourseAsAdmin = async (req, res) => {
       "COURSE",
       courseId,
       "ADMIN_APPROVE_COURSE",
-      { approval_status: "PENDING" },
-      { approval_status: "APPROVED", approval_notes },
-      `Admin approved course: ${course.title} from HOD ${course.hod_id}`,
+      { assignment_status: "pending" },
+      { assignment_status: "accepted" },
+      `Admin approved course: ${course.title} assigned to faculty ${course.assigned_faculty_id}`,
     );
 
     res.json({
       message: "Course approved successfully",
       courseId,
-      status: "APPROVED",
+      status: "accepted",
     });
   } catch (error) {
     console.error("Approve course error:", error);
@@ -179,12 +199,10 @@ exports.rejectCourseAsAdmin = async (req, res) => {
     // Update course status
     await db.query(
       `UPDATE courses 
-       SET approval_status = 'REJECTED',
-           rejected_by = ?,
-           rejected_at = NOW(),
-           approval_notes = ?
+       SET assignment_status = 'rejected',
+           rejected_at = NOW()
        WHERE id = ?`,
-      [adminId, rejection_reason, courseId],
+      [courseId],
     );
 
     // Log admin action
@@ -194,15 +212,15 @@ exports.rejectCourseAsAdmin = async (req, res) => {
       "COURSE",
       courseId,
       "ADMIN_REJECT_COURSE",
-      { approval_status: "PENDING" },
-      { approval_status: "REJECTED", rejection_reason },
-      `Admin rejected course: ${course.title} from HOD ${course.hod_id} - Reason: ${rejection_reason}`,
+      { assignment_status: "pending" },
+      { assignment_status: "rejected", rejection_reason },
+      `Admin rejected course: ${course.title} assigned to faculty ${course.assigned_faculty_id} - Reason: ${rejection_reason}`,
     );
 
     res.json({
       message: "Course rejected successfully",
       courseId,
-      status: "REJECTED",
+      status: "rejected",
     });
   } catch (error) {
     console.error("Reject course error:", error);
@@ -410,5 +428,184 @@ exports.getAdminStatsAsAdmin = async (req, res) => {
   } catch (error) {
     console.error("Get admin stats error:", error);
     res.status(500).json({ error: "Failed to fetch statistics" });
+  }
+};
+
+/**
+ * PUT /api/admin/courses/:id - Update course details
+ */
+exports.updateCourseAsAdmin = async (req, res) => {
+  try {
+    const courseId = req.params.id;
+    const {
+      title,
+      description,
+      start_date,
+      end_date,
+      status,
+      time_slot_start,
+      time_slot_end,
+    } = req.body;
+
+    // Get current course
+    const [currentCourse] = await db.query(
+      `SELECT * FROM courses WHERE id = ?`,
+      [courseId],
+    );
+
+    if (!currentCourse.length) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+
+    // Build update query
+    const updates = [];
+    const values = [];
+
+    if (title !== undefined) {
+      updates.push("title = ?");
+      values.push(title);
+    }
+    if (description !== undefined) {
+      updates.push("description = ?");
+      values.push(description);
+    }
+    if (start_date !== undefined) {
+      updates.push("start_date = ?");
+      values.push(start_date);
+    }
+    if (end_date !== undefined) {
+      updates.push("end_date = ?");
+      values.push(end_date);
+    }
+    if (time_slot_start !== undefined) {
+      updates.push("time_slot_start = ?");
+      values.push(time_slot_start);
+    }
+    if (time_slot_end !== undefined) {
+      updates.push("time_slot_end = ?");
+      values.push(time_slot_end);
+    }
+    if (status !== undefined) {
+      updates.push("status = ?");
+      values.push(status);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    values.push(courseId);
+
+    await db.query(
+      `UPDATE courses SET ${updates.join(", ")} WHERE id = ?`,
+      values,
+    );
+
+    // Log the change
+    await auditLog(req.user.id, "UPDATE", "COURSE", courseId, {
+      old: currentCourse[0],
+      new: {
+        title,
+        description,
+        start_date,
+        end_date,
+        time_slot_start,
+        time_slot_end,
+        status,
+      },
+    });
+
+    res.json({ message: "Course updated successfully" });
+  } catch (error) {
+    console.error("Update course error:", error);
+    res.status(500).json({ error: "Failed to update course" });
+  }
+};
+
+/**
+ * DELETE /api/admin/courses/:id - Delete a course
+ */
+exports.deleteCourseAsAdmin = async (req, res) => {
+  try {
+    const courseId = req.params.id;
+
+    // Get course details before deletion
+    const [courses] = await db.query(`SELECT * FROM courses WHERE id = ?`, [
+      courseId,
+    ]);
+
+    if (!courses.length) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+
+    // Delete all enrollments first (cascade)
+    await db.query(`DELETE FROM course_enrollments WHERE course_id = ?`, [
+      courseId,
+    ]);
+
+    // Delete all sessions
+    await db.query(`DELETE FROM course_sessions WHERE course_id = ?`, [
+      courseId,
+    ]);
+
+    // Delete the course
+    await db.query(`DELETE FROM courses WHERE id = ?`, [courseId]);
+
+    // Log the deletion
+    await auditLog(req.user.id, "DELETE", "COURSE", courseId, {
+      deleted_course: courses[0],
+    });
+
+    res.json({ message: "Course deleted successfully" });
+  } catch (error) {
+    console.error("Delete course error:", error);
+    res.status(500).json({ error: "Failed to delete course" });
+  }
+};
+
+/**
+ * POST /api/admin/check-faculty-conflicts - Check faculty schedule conflicts
+ * Returns courses that conflictwith the given date range
+ */
+exports.checkFacultyConflicts = async (req, res) => {
+  try {
+    const { faculty_id, start_date, end_date, exclude_course_id } = req.body;
+
+    if (!faculty_id || !start_date || !end_date) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // Find courses assigned to this faculty that overlap with the date range
+    const [conflicts] = await db.query(
+      `SELECT id, title, start_date, end_date
+       FROM courses
+       WHERE assigned_faculty_id = ?
+       AND id != ?
+       AND status = 'active'
+       AND (
+         (start_date <= ? AND end_date >= ?)
+         OR (start_date <= ? AND end_date >= ?)
+         OR (start_date >= ? AND end_date <= ?)
+       )
+       ORDER BY start_date ASC`,
+      [
+        faculty_id,
+        exclude_course_id || 0,
+        end_date,
+        start_date,
+        end_date,
+        start_date,
+        start_date,
+        end_date,
+      ],
+    );
+
+    res.json({
+      conflicts: conflicts || [],
+      has_conflicts: conflicts && conflicts.length > 0,
+    });
+  } catch (error) {
+    console.error("Check faculty conflicts error:", error);
+    res.status(500).json({ error: "Failed to check conflicts" });
   }
 };

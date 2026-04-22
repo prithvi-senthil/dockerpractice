@@ -177,15 +177,34 @@ const CourseDetailsScreen = ({ route, navigation }) => {
     const colors = {
       ACTIVE: "#10B981",
       PENDING: "#F59E0B",
+      pending: "#F59E0B",
+      accepted: "#10B981",
+      rejected: "#DC2626",
       COMPLETED: "#6B7280",
       CANCELLED: "#DC2626",
     };
     return colors[status] || "#666";
   };
 
+  const getStatusDisplay = (course) => {
+    // Show assignment_status (pending/accepted/rejected) if available
+    if (course?.assignment_status) {
+      return course.assignment_status.toUpperCase();
+    }
+    // Fallback to status field
+    return course?.status || "UNKNOWN";
+  };
+
   const isFaculty = user?.user_type === "faculty";
-  const isAssignedFaculty = course && faculty && faculty.id === currentUserId;
-  const canAcceptReject = isAssignedFaculty && course?.status === "PENDING";
+  const isAssignedFaculty =
+    course?.assigned_faculty_id === currentUserId ||
+    course?.faculty_id === currentUserId;
+  const isCreator = course?.created_by === currentUserId;
+  const canAcceptReject =
+    isFaculty &&
+    isAssignedFaculty &&
+    course?.assignment_status === "pending" &&
+    !isCreator;
 
   if (loading) {
     return (
@@ -222,10 +241,14 @@ const CourseDetailsScreen = ({ route, navigation }) => {
           <View
             style={[
               styles.statusBadge,
-              { backgroundColor: getStatusColor(course.status) },
+              {
+                backgroundColor: getStatusColor(
+                  course?.assignment_status || course?.status,
+                ),
+              },
             ]}
           >
-            <Text style={styles.statusText}>{course.status}</Text>
+            <Text style={styles.statusText}>{getStatusDisplay(course)}</Text>
           </View>
         </View>
 

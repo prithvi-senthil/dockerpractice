@@ -40,7 +40,7 @@ const logAdminAction = async (
 ) => {
   try {
     const query = `
-      INSERT INTO audit_logs (user_id, action, entity_type, entity_id, description, created_at)
+      INSERT INTO audit_logs (actor_id, action, entity_type, entity_id, description, created_at)
       VALUES (?, ?, ?, ?, ?, NOW())
     `;
     await db.query(query, [
@@ -52,6 +52,167 @@ const logAdminAction = async (
     ]);
   } catch (error) {
     console.error("[AUDIT LOG ERROR]", error);
+  }
+};
+
+// ============================================================
+// GENERIC USER CREATION
+// ============================================================
+
+/**
+ * Create a user by role (admin endpoint)
+ * Body: { name, email, user_type, department }
+ */
+exports.createUser = async (req, res) => {
+  try {
+    const { name, email, user_type, department } = req.body;
+
+    // Validate required fields
+    if (!name || !email || !user_type) {
+      return res.status(400).json({
+        error: "Missing required fields: name, email, user_type",
+      });
+    }
+
+    // Check if email already exists
+    const [existingUser] = await db.query(
+      "SELECT id FROM users WHERE email = ?",
+      [email],
+    );
+
+    if (existingUser.length > 0) {
+      return res.status(409).json({ error: "Email already exists" });
+    }
+
+    // Generate random password
+    const password = generatePassword(user_type);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user based on type
+    if (user_type === "hod") {
+      if (!department) {
+        return res.status(400).json({
+          error: "Department is required for HOD",
+        });
+      }
+
+      const query =
+        "INSERT INTO users (name, email, password, user_type, department, created_at) VALUES (?, ?, ?, ?, ?, NOW())";
+      const [result] = await db.query(query, [
+        name,
+        email,
+        hashedPassword,
+        user_type,
+        department,
+      ]);
+
+      const userId = result.insertId;
+
+      // Log admin action
+      await logAdminAction(
+        req.user.id,
+        "CREATE",
+        "user_hod",
+        userId,
+        `Created HOD: ${name}`,
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "HOD created successfully",
+        data: {
+          id: userId,
+          name,
+          email,
+          user_type: "hod",
+          department,
+          temporary_password: password,
+        },
+      });
+    } else if (user_type === "faculty") {
+      if (!department) {
+        return res.status(400).json({
+          error: "Department is required for Faculty",
+        });
+      }
+
+      const query =
+        "INSERT INTO users (name, email, password, user_type, department, created_at) VALUES (?, ?, ?, ?, ?, NOW())";
+      const [result] = await db.query(query, [
+        name,
+        email,
+        hashedPassword,
+        user_type,
+        department,
+      ]);
+
+      const userId = result.insertId;
+
+      // Log admin action
+      await logAdminAction(
+        req.user.id,
+        "CREATE",
+        "user_faculty",
+        userId,
+        `Created Faculty: ${name}`,
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Faculty created successfully",
+        data: {
+          id: userId,
+          name,
+          email,
+          user_type: "faculty",
+          department,
+          temporary_password: password,
+        },
+      });
+    } else if (user_type === "student") {
+      const query =
+        "INSERT INTO users (name, email, password, user_type, created_at) VALUES (?, ?, ?, ?, NOW())";
+      const [result] = await db.query(query, [
+        name,
+        email,
+        hashedPassword,
+        user_type,
+      ]);
+
+      const userId = result.insertId;
+
+      // Log admin action
+      await logAdminAction(
+        req.user.id,
+        "CREATE",
+        "user_student",
+        userId,
+        `Created Student: ${name}`,
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Student created successfully",
+        data: {
+          id: userId,
+          name,
+          email,
+          user_type: "student",
+          temporary_password: password,
+        },
+      });
+    } else if (user_type === "admin") {
+      return res.status(400).json({
+        error: "Cannot create admin users through this endpoint",
+      });
+    } else {
+      return res.status(400).json({
+        error: "Invalid user_type. Must be: hod, faculty, or student",
+      });
+    }
+  } catch (error) {
+    console.error("Create user error:", error);
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -68,10 +229,8 @@ exports.createHOD = async (req, res) => {
     const admin_id = req.user.id;
 
     // Validation
-    if (!name || !email || !department) {
-      return res
-        .status(400)
-        .json({ error: "Name, email, and department are required" });
+    if (!name || !email) {
+      return res.status(400).json({ error: "Name and email are required" });
     }
 
     // Check if email already exists
@@ -97,7 +256,7 @@ exports.createHOD = async (req, res) => {
       email,
       hashedPassword,
       "hod",
-      department,
+      department || null,
     ]);
 
     const hodId = result.insertId;
@@ -106,7 +265,7 @@ exports.createHOD = async (req, res) => {
     const emailResult = await sendHODWelcomeEmail(
       email,
       name,
-      department,
+      department || "TBD",
       password,
     );
 
@@ -165,8 +324,19 @@ exports.getAllHODs = async (req, res) => {
 exports.updateHOD = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, department, is_active } = req.body;
+    const { name, email, department, is_active } = req.body;
     const admin_id = req.user.id;
+
+    // Check if email is already in use by another user
+    if (email) {
+      const [existingEmail] = await db.query(
+        "SELECT id FROM users WHERE email = ? AND id != ?",
+        [email, id],
+      );
+      if (existingEmail.length > 0) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+    }
 
     // Build dynamic query
     let updateFields = [];
@@ -175,6 +345,10 @@ exports.updateHOD = async (req, res) => {
     if (name) {
       updateFields.push("name = ?");
       values.push(name);
+    }
+    if (email) {
+      updateFields.push("email = ?");
+      values.push(email);
     }
     if (department) {
       updateFields.push("department = ?");
@@ -386,8 +560,19 @@ exports.getAllFaculty = async (req, res) => {
 exports.updateFaculty = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, report_to, is_active } = req.body;
+    const { name, email, report_to, is_active } = req.body;
     const admin_id = req.user.id;
+
+    // Check if email is already in use by another user
+    if (email) {
+      const [existingEmail] = await db.query(
+        "SELECT id FROM users WHERE email = ? AND id != ?",
+        [email, id],
+      );
+      if (existingEmail.length > 0) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+    }
 
     let updateFields = [];
     let values = [];
@@ -395,6 +580,10 @@ exports.updateFaculty = async (req, res) => {
     if (name) {
       updateFields.push("name = ?");
       values.push(name);
+    }
+    if (email) {
+      updateFields.push("email = ?");
+      values.push(email);
     }
     if (report_to) {
       updateFields.push("report_to = ?");
@@ -573,8 +762,19 @@ exports.getAllStudents = async (req, res) => {
 exports.updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, is_active } = req.body;
+    const { name, email, is_active } = req.body;
     const admin_id = req.user.id;
+
+    // Check if email is already in use by another user
+    if (email) {
+      const [existingEmail] = await db.query(
+        "SELECT id FROM users WHERE email = ? AND id != ?",
+        [email, id],
+      );
+      if (existingEmail.length > 0) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
+    }
 
     let updateFields = [];
     let values = [];
@@ -582,6 +782,10 @@ exports.updateStudent = async (req, res) => {
     if (name) {
       updateFields.push("name = ?");
       values.push(name);
+    }
+    if (email) {
+      updateFields.push("email = ?");
+      values.push(email);
     }
     if (is_active !== undefined) {
       updateFields.push("is_active = ?");

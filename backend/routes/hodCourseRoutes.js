@@ -38,6 +38,39 @@ router.post(
   hodCtrl.assignFacultyToCourseasHOD,
 );
 
+/**
+ * DELETE /api/hod/courses/:id - Delete a course in your department
+ * Only department courses can be deleted by the HOD
+ */
+router.delete(
+  "/courses/:id",
+  auth,
+  requireRole("hod"),
+  hodCtrl.deleteCourseasHOD,
+);
+
+/**
+ * POST /api/hod/courses/:id/accept - Accept a course assignment
+ * HOD can accept courses assigned directly to them
+ */
+router.post(
+  "/courses/:id/accept",
+  auth,
+  requireRole("hod"),
+  hodCtrl.acceptCourseAsHOD,
+);
+
+/**
+ * POST /api/hod/courses/:id/reject - Reject a course assignment
+ * HOD can reject courses assigned directly to them
+ */
+router.post(
+  "/courses/:id/reject",
+  auth,
+  requireRole("hod"),
+  hodCtrl.rejectCourseAsHOD,
+);
+
 // ============================================================
 // FACULTY MANAGEMENT (HOD ONLY - DEPARTMENT ISOLATED)
 // ============================================================

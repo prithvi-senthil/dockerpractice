@@ -15,6 +15,24 @@ router.use((req, res, next) => {
 });
 
 // ============================================================
+// GENERIC USER CREATION
+// ============================================================
+
+/**
+ * POST /api/admin/users
+ * Create a new user by role (hod, faculty, or student)
+ * Body: { name, email, user_type, department? }
+ */
+router.post("/users", adminUserController.createUser);
+
+/**
+ * GET /api/admin/users
+ * Get all users separated by role (HODs, Faculty, Students)
+ * Returns: { summary: {...}, users_by_role: {...} }
+ */
+router.get("/users", adminUserController.getAllUsersByRole);
+
+// ============================================================
 // HOD ROUTES
 // ============================================================
 
@@ -103,16 +121,5 @@ router.patch("/students/:id", adminUserController.updateStudent);
  * Delete a Student
  */
 router.delete("/students/:id", adminUserController.deleteStudent);
-
-// ============================================================
-// ADMIN DASHBOARD
-// ============================================================
-
-/**
- * GET /api/admin/users
- * Get all users separated by role (HODs, Faculty, Students)
- * Returns: { summary: {...}, users_by_role: {...} }
- */
-router.get("/users", adminUserController.getAllUsersByRole);
 
 module.exports = router;

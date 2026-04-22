@@ -12,6 +12,7 @@ import {
   Modal,
   TextInput,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import api from "../../services/api";
@@ -23,6 +24,10 @@ const CalendarScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [needsAcknowledgement, setNeedsAcknowledgement] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Working hours from settings
+  const [startHour, setStartHour] = useState(7); // Default 7 AM
+  const [endHour, setEndHour] = useState(19); // Default 7 PM
 
   // Subscription slot booking from calendar
   const [subTasks, setSubTasks] = useState([]);
@@ -36,7 +41,33 @@ const CalendarScreen = ({ navigation }) => {
   const [subRangeInfo, setSubRangeInfo] = useState(null);
   const [subLoading, setSubLoading] = useState(false);
 
+  // Fetch working hours from settings
+  const fetchWorkingHours = async () => {
+    try {
+      const response = await api.get("/settings/working-hours");
+      const { working_hours_start, working_hours_end } = response.data || {};
+
+      if (working_hours_start) {
+        const startMatch = String(working_hours_start).match(/(\d{1,2}):/);
+        const startHourNum = startMatch ? parseInt(startMatch[1], 10) : 7;
+        setStartHour(startHourNum);
+        console.log("⏰ Calendar start hour updated to:", startHourNum);
+      }
+
+      if (working_hours_end) {
+        const endMatch = String(working_hours_end).match(/(\d{1,2}):/);
+        const endHourNum = endMatch ? parseInt(endMatch[1], 10) : 19;
+        setEndHour(endHourNum);
+        console.log("⏰ Calendar end hour updated to:", endHourNum);
+      }
+    } catch (error) {
+      console.warn("Could not fetch working hours, using defaults:", error);
+      // Use default values (already set in state initialization)
+    }
+  };
+
   useEffect(() => {
+    fetchWorkingHours();
     fetchSlots(selectedDate);
     checkAcknowledgement();
   }, [selectedDate]);
@@ -44,6 +75,14 @@ const CalendarScreen = ({ navigation }) => {
   useEffect(() => {
     fetchSubTasks();
   }, []);
+
+  // Refetch working hours whenever screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log("📅 Calendar screen focused - refetching working hours");
+      fetchWorkingHours();
+    }, []),
+  );
 
   const fetchSubTasks = async () => {
     try {
@@ -278,7 +317,8 @@ const CalendarScreen = ({ navigation }) => {
 
   const generate24Hours = () => {
     const hours = [];
-    for (let i = 0; i < 24; i++) {
+    // Only generate hours within working hours
+    for (let i = startHour; i <= endHour; i++) {
       hours.push({
         hour: i,
         label:
@@ -344,7 +384,7 @@ const CalendarScreen = ({ navigation }) => {
   };
 
   const isInDefaultWindow = (hour) => {
-    return hour >= 8 && hour <= 17;
+    return hour >= startHour && hour <= endHour;
   };
 
   const getSlotColor = (slotType) => {
