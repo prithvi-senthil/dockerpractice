@@ -56,9 +56,14 @@ const AdminUsersPanel = ({ navigation }) => {
   });
 
   // Assign Users states
+  const [assignmentTab, setAssignmentTab] = useState("hod"); // "hod", "faculty", or "student"
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedHodForAssign, setSelectedHodForAssign] = useState("");
   const [selectedDeptForAssign, setSelectedDeptForAssign] = useState("");
+  const [selectedFacultyForAssign, setSelectedFacultyForAssign] = useState("");
+  const [selectedHodForFaculty, setSelectedHodForFaculty] = useState("");
+  const [selectedStudentForAssign, setSelectedStudentForAssign] = useState("");
+  const [selectedDeptForStudent, setSelectedDeptForStudent] = useState("");
   const [assignmentError, setAssignmentError] = useState("");
 
   const USER_ROLE_COLORS = {
@@ -1012,92 +1017,419 @@ const AdminUsersPanel = ({ navigation }) => {
       {activeTab === "assignUsers" && (
         /* ASSIGN USERS VIEW */
         <>
-          <ScrollView style={styles.assignContainer}>
-            <View style={styles.assignSection}>
-              <View style={styles.assignHeader}>
-                <View style={styles.assignIconCircle}>
-                  <Ionicons name="swap-horizontal" size={24} color="#fff" />
-                </View>
-                <Text style={styles.assignTitle}>
-                  Assign HODs to Departments
-                </Text>
-              </View>
-
-              {/* HOD Selection */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Select HOD *</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={selectedHodForAssign}
-                    onValueChange={(value) => {
-                      setSelectedHodForAssign(value);
-                      setAssignmentError("");
-                    }}
-                    style={styles.picker}
-                    mode="dropdown"
-                  >
-                    <Picker.Item label="Choose a HOD..." value="" />
-                    {Array.isArray(hods) && hods.length > 0 ? (
-                      hods.map((hod) => (
-                        <Picker.Item
-                          key={hod.id}
-                          label={`${hod.name}${hod.department ? ` (Currently in ${hod.department})` : ""}`}
-                          value={hod.id.toString()}
-                        />
-                      ))
-                    ) : (
-                      <Picker.Item label="No HODs available" value="" />
-                    )}
-                  </Picker>
-                </View>
-              </View>
-
-              {/* Department Selection */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Select Department *</Text>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={selectedDeptForAssign}
-                    onValueChange={(value) => {
-                      setSelectedDeptForAssign(value);
-                      setAssignmentError("");
-                    }}
-                    style={styles.picker}
-                    mode="dropdown"
-                  >
-                    <Picker.Item label="Choose a Department..." value="" />
-                    {Array.isArray(departments) && departments.length > 0 ? (
-                      departments.map((dept) => (
-                        <Picker.Item
-                          key={dept.id}
-                          label={`${dept.name}${dept.hod_name ? ` (HOD: ${dept.hod_name})` : " (Unassigned)"}`}
-                          value={dept.id.toString()}
-                        />
-                      ))
-                    ) : (
-                      <Picker.Item label="No departments available" value="" />
-                    )}
-                  </Picker>
-                </View>
-              </View>
-
-              {/* Error Message */}
-              {assignmentError ? (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle" size={16} color="#ff3b30" />
-                  <Text style={styles.errorText}>{assignmentError}</Text>
-                </View>
-              ) : null}
-
-              {/* Assign Button */}
-              <TouchableOpacity
-                style={styles.assignBtn}
-                onPress={handleAssignHodToDept}
+          {/* Assignment Type Selector */}
+          <View style={styles.assignmentTabSelector}>
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "hod" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("hod");
+                setAssignmentError("");
+                setSelectedHodForAssign("");
+                setSelectedDeptForAssign("");
+              }}
+            >
+              <Ionicons
+                name="people"
+                size={18}
+                color={assignmentTab === "hod" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "hod" && styles.assignmentTabTextActive,
+                ]}
               >
-                <Ionicons name="swap-horizontal" size={18} color="#fff" />
-                <Text style={styles.assignBtnText}>Assign HOD</Text>
-              </TouchableOpacity>
-            </View>
+                HOD
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "faculty" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("faculty");
+                setAssignmentError("");
+                setSelectedFacultyForAssign("");
+                setSelectedHodForFaculty("");
+              }}
+            >
+              <Ionicons
+                name="person"
+                size={18}
+                color={assignmentTab === "faculty" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "faculty" && styles.assignmentTabTextActive,
+                ]}
+              >
+                Faculty
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.assignmentTabBtn,
+                assignmentTab === "student" && styles.assignmentTabBtnActive,
+              ]}
+              onPress={() => {
+                setAssignmentTab("student");
+                setAssignmentError("");
+                setSelectedStudentForAssign("");
+                setSelectedDeptForStudent("");
+              }}
+            >
+              <Ionicons
+                name="school"
+                size={18}
+                color={assignmentTab === "student" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.assignmentTabText,
+                  assignmentTab === "student" && styles.assignmentTabTextActive,
+                ]}
+              >
+                Students
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.assignContainer}>
+            {/* ASSIGN HOD SECTION */}
+            {assignmentTab === "hod" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#EF4444" },
+                    ]}
+                  >
+                    <Ionicons name="people" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>Assign HOD</Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link HODs to departments
+                    </Text>
+                  </View>
+                </View>
+
+                {/* HOD Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select HOD *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedHodForAssign}
+                      onValueChange={(value) => {
+                        setSelectedHodForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose a HOD..." value="" />
+                      {Array.isArray(hods) && hods.length > 0 ? (
+                        hods.map((hod) => {
+                          const isAssigned = hod.department ? true : false;
+                          return (
+                            <Picker.Item
+                              key={hod.id}
+                              label={`${hod.name}${isAssigned ? ` (In ${hod.department})` : ""}`}
+                              value={hod.id.toString()}
+                              enabled={!isAssigned}
+                            />
+                          );
+                        })
+                      ) : (
+                        <Picker.Item label="No HODs available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Department Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Department *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedDeptForAssign}
+                      onValueChange={(value) => {
+                        setSelectedDeptForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose a Department..." value="" />
+                      {Array.isArray(departments) && departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <Picker.Item
+                            key={dept.id}
+                            label={`${dept.name}${dept.hod_name ? ` (${dept.hod_name})` : " (Unassigned)"}`}
+                            value={dept.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item
+                          label="No departments available"
+                          value=""
+                        />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Error Message */}
+                {assignmentError ? (
+                  <View style={styles.errorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#ff3b30" />
+                    <Text style={styles.errorText}>{assignmentError}</Text>
+                  </View>
+                ) : null}
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedHodForAssign ||
+                    !selectedDeptForAssign ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={handleAssignHodToDept}
+                  disabled={
+                    !selectedHodForAssign ||
+                    !selectedDeptForAssign ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign HOD</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ASSIGN FACULTY SECTION */}
+            {assignmentTab === "faculty" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#F59E0B" },
+                    ]}
+                  >
+                    <Ionicons name="person" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>
+                      Assign Faculty
+                    </Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link Faculty to HODs
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Faculty Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Faculty *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedFacultyForAssign}
+                      onValueChange={(value) => {
+                        setSelectedFacultyForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Faculty..." value="" />
+                      {Array.isArray(allUsers) && allUsers.length > 0 ? (
+                        allUsers
+                          .filter((u) => u.role === "faculty")
+                          .map((faculty) => (
+                            <Picker.Item
+                              key={faculty.id}
+                              label={`${faculty.name}${faculty.department ? ` (${faculty.department})` : ""}`}
+                              value={faculty.id.toString()}
+                            />
+                          ))
+                      ) : (
+                        <Picker.Item label="No faculty available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* HOD Picker for Faculty */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Reports to HOD *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedHodForFaculty}
+                      onValueChange={(value) => {
+                        setSelectedHodForFaculty(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose HOD..." value="" />
+                      {Array.isArray(hods) && hods.length > 0 ? (
+                        hods.map((hod) => (
+                          <Picker.Item
+                            key={hod.id}
+                            label={`${hod.name}${hod.department ? ` (${hod.department})` : ""}`}
+                            value={hod.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item label="No HODs available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedFacultyForAssign ||
+                    !selectedHodForFaculty ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={() => {}}
+                  disabled={
+                    !selectedFacultyForAssign ||
+                    !selectedHodForFaculty ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign Faculty</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ASSIGN STUDENT SECTION */}
+            {assignmentTab === "student" && (
+              <View style={styles.assignSection}>
+                <View style={styles.assignSectionHeader}>
+                  <View
+                    style={[
+                      styles.assignSectionIcon,
+                      { backgroundColor: "#10B981" },
+                    ]}
+                  >
+                    <Ionicons name="school" size={20} color="#fff" />
+                  </View>
+                  <View style={styles.assignSectionHeaderText}>
+                    <Text style={styles.assignSectionTitle}>
+                      Assign Students
+                    </Text>
+                    <Text style={styles.assignSectionSubtitle}>
+                      Link Students to departments
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Student Picker */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Student *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedStudentForAssign}
+                      onValueChange={(value) => {
+                        setSelectedStudentForAssign(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Student..." value="" />
+                      {Array.isArray(allUsers) && allUsers.length > 0 ? (
+                        allUsers
+                          .filter((u) => u.role === "student")
+                          .map((student) => (
+                            <Picker.Item
+                              key={student.id}
+                              label={`${student.name}${student.department ? ` (${student.department})` : ""}`}
+                              value={student.id.toString()}
+                            />
+                          ))
+                      ) : (
+                        <Picker.Item label="No students available" value="" />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Department Picker for Student */}
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Department *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedDeptForStudent}
+                      onValueChange={(value) => {
+                        setSelectedDeptForStudent(value);
+                        setAssignmentError("");
+                      }}
+                      style={styles.picker}
+                      mode="dropdown"
+                    >
+                      <Picker.Item label="Choose Department..." value="" />
+                      {Array.isArray(departments) && departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <Picker.Item
+                            key={dept.id}
+                            label={dept.name}
+                            value={dept.id.toString()}
+                          />
+                        ))
+                      ) : (
+                        <Picker.Item
+                          label="No departments available"
+                          value=""
+                        />
+                      )}
+                    </Picker>
+                  </View>
+                </View>
+
+                {/* Assign Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.assignBtn,
+                    !selectedStudentForAssign ||
+                    !selectedDeptForStudent ||
+                    assignmentError
+                      ? styles.assignBtnDisabled
+                      : null,
+                  ]}
+                  onPress={() => {}}
+                  disabled={
+                    !selectedStudentForAssign ||
+                    !selectedDeptForStudent ||
+                    !!assignmentError
+                  }
+                >
+                  <Ionicons name="swap-horizontal" size={18} color="#fff" />
+                  <Text style={styles.assignBtnText}>Assign Student</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </ScrollView>
         </>
       )}
@@ -1322,49 +1654,6 @@ const AdminUsersPanel = ({ navigation }) => {
                   editable={user?.user_type === "admin" || !editingDeptId}
                 />
               </View>
-
-              {user?.user_type === "admin" && (
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>Assign HOD</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={deptFormData.hod_id || ""}
-                      onValueChange={(value) =>
-                        setDeptFormData({
-                          ...deptFormData,
-                          hod_id: value ? value : null,
-                        })
-                      }
-                      style={styles.picker}
-                      mode="dropdown"
-                    >
-                      <Picker.Item label="Select HOD..." value="" />
-                      {(Array.isArray(hods) ? hods : []).map((hod) => {
-                        // Check if this HOD is already assigned to another department
-                        const assignedDept = Array.isArray(departments)
-                          ? departments.find(
-                              (d) =>
-                                d.hod_id === hod.id && d.id !== editingDeptId, // Exclude current department if editing
-                            )
-                          : undefined;
-                        const isDisabled = !!assignedDept;
-                        const deptLabel = assignedDept
-                          ? ` (Assigned to ${assignedDept.name})`
-                          : "";
-
-                        return (
-                          <Picker.Item
-                            key={hod.id}
-                            label={`${hod.name}${deptLabel}`}
-                            value={hod.id}
-                            enabled={!isDisabled}
-                          />
-                        );
-                      })}
-                    </Picker>
-                  </View>
-                </View>
-              )}
             </ScrollView>
 
             <View style={styles.formActions}>
@@ -2002,6 +2291,120 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#1a1a1a",
   },
+  assignHeaderText: {
+    flex: 1,
+  },
+  assignSubtitle: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  assignSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 2,
+    borderBottomColor: "#f0f0f0",
+  },
+  assignSectionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  assignSectionHeaderText: {
+    flex: 1,
+  },
+  assignSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  assignSectionSubtitle: {
+    fontSize: 11,
+    color: "#999",
+    marginTop: 2,
+  },
+  assignmentSummaryCard: {
+    flexDirection: "row",
+    backgroundColor: "#f8f9fa",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  summaryItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  summaryBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  summaryCount: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: "#666",
+    fontWeight: "500",
+  },
+  summaryDivider: {
+    width: 1,
+    backgroundColor: "#d1d5db",
+    marginHorizontal: 8,
+  },
+  selectedInfoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f9ff",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#0ea5e9",
+    gap: 8,
+  },
+  selectedInfoText: {
+    fontSize: 13,
+    color: "#0369a1",
+    fontWeight: "500",
+    flex: 1,
+  },
+  readyIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0fdf4",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: "#10B981",
+    gap: 8,
+  },
+  readyText: {
+    fontSize: 13,
+    color: "#047857",
+    fontWeight: "500",
+  },
   assignBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -2016,6 +2419,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
+  },
+  assignBtnDisabled: {
+    backgroundColor: "#cbd5e1",
+    opacity: 0.6,
   },
   assignBtnText: {
     fontSize: 15,

@@ -83,7 +83,7 @@ exports.login = async (req, res) => {
         name: user.name,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "24h" },
+      { expiresIn: "7d" },
     );
 
     console.log("✅ Login successful:", user.name, user.user_type);
@@ -139,7 +139,7 @@ exports.googleLogin = async (req, res) => {
         name: user.name,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "24h" },
+      { expiresIn: "7d" },
     );
 
     console.log("✅ Google login successful:", user.name, user.user_type);
@@ -174,5 +174,67 @@ exports.getCurrentUser = async (req, res) => {
   } catch (error) {
     console.error("Get user error:", error);
     res.status(500).json({ error: "Failed to get user" });
+  }
+};
+
+// Test Login - FOR DEVELOPMENT ONLY
+// Generates a proper JWT token for testing without database query
+exports.testLogin = async (req, res) => {
+  try {
+    const { email, userType } = req.body;
+
+    if (!email || !userType) {
+      return res.status(400).json({ error: "Email and userType are required" });
+    }
+
+    // Map user type (handle both "faculty"/"hod"/"student" and "admin")
+    const validTypes = ["admin", "hod", "faculty", "student"];
+    const type = validTypes.includes(userType) ? userType : "student";
+
+    console.log("🧪 Test login for:", email, "Type:", type);
+    console.log("🔑 JWT_SECRET exists:", !!process.env.JWT_SECRET);
+    console.log(
+      "🔑 JWT_SECRET first 20 chars:",
+      process.env.JWT_SECRET?.substring(0, 20) || "NOT SET",
+    );
+
+    // Create test user object
+    const testUser = {
+      id: `test-${Date.now()}`,
+      name: email.split("@")[0],
+      email: email,
+      user_type: type,
+      isTestUser: true,
+    };
+
+    // Generate a proper JWT token
+    const tokenPayload = {
+      id: testUser.id,
+      email: testUser.email,
+      user_type: testUser.user_type,
+      name: testUser.name,
+    };
+
+    console.log("🧪 Token payload:", tokenPayload);
+
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, {
+      expiresIn: "7d", // 7 days for test tokens during development
+    });
+
+    console.log("🧪 JWT token generated:", token.substring(0, 50) + "...");
+    console.log(
+      "✅ Test login successful - JWT generated for:",
+      testUser.name,
+      testUser.user_type,
+    );
+
+    res.json({
+      token,
+      user: testUser,
+    });
+  } catch (error) {
+    console.error("❌ Test login error:", error.message);
+    console.error("❌ Full error:", error);
+    res.status(500).json({ error: "Test login failed" });
   }
 };

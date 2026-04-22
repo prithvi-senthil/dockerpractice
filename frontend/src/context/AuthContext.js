@@ -16,17 +16,43 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = async () => {
     try {
+      console.log("🔄 Checking auth status...");
       const token = await AsyncStorage.getItem("token");
       const userData = await AsyncStorage.getItem("user");
 
+      console.log(
+        "📦 Token from storage:",
+        token ? token.substring(0, 20) + "..." : "NOT FOUND",
+      );
+      console.log(
+        "👤 User data from storage:",
+        userData ? "FOUND" : "NOT FOUND",
+      );
+
       if (token && userData) {
-        setUser(JSON.parse(userData));
-        setIsAuthenticated(true);
-        // Set default authorization header
-        api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+        try {
+          // Try to validate the token first with a test request
+          await api.get("/auth/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          // Token is valid, restore auth
+          setUser(JSON.parse(userData));
+          setIsAuthenticated(true);
+          api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+          console.log("✅ Auth restored with valid token");
+        } catch (tokenError) {
+          // Token is invalid or expired
+          console.log("⚠️  Stored token is invalid/expired, clearing auth");
+          await AsyncStorage.removeItem("token");
+          await AsyncStorage.removeItem("user");
+          delete api.defaults.headers.common["Authorization"];
+        }
+      } else {
+        console.log("ℹ️  No auth data found in storage");
       }
     } catch (error) {
-      console.error("Check auth error:", error);
+      console.error("❌ Check auth error:", error);
     } finally {
       setLoading(false);
     }
@@ -99,37 +125,50 @@ export const AuthProvider = ({ children }) => {
   const testLogin = async (email, userType) => {
     try {
       setLoading(true);
+      console.log("🧪 Starting test login:", email, "as", userType);
 
-      // Create fake user data based on email domain
-      const isFaculty =
-        userType === "faculty" ||
-        email.includes("faculty") ||
-        email.includes("teacher");
-      const finalUserType = isFaculty ? "faculty" : "student";
-
-      const fakeUser = {
-        id: finalUserType === "faculty" ? `F${Date.now()}` : `S${Date.now()}`,
+      // Call the backend test login endpoint to get a proper JWT token
+      const response = await api.post("/auth/test-login", {
         email: email,
-        user_type: finalUserType,
-        name: email.split("@")[0],
-        isTestUser: true,
-      };
+        userType: userType,
+      });
 
-      const fakeToken = `test-token-${Date.now()}`;
+      console.log("🧪 Test login response received");
+      const { token, user: userData } = response.data;
 
-      // Store in AsyncStorage
-      await AsyncStorage.setItem("token", fakeToken);
-      await AsyncStorage.setItem("user", JSON.stringify(fakeUser));
+      console.log(
+        "🧪 Token received:",
+        token ? token.substring(0, 20) + "..." : "NO TOKEN",
+      );
+      console.log("🧪 User data received:", userData?.name || "NO USER");
+
+      // Store token and user in AsyncStorage
+      await AsyncStorage.setItem("token", token);
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
+
+      console.log("✅ Stored in AsyncStorage");
+
+      // Set authorization header
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+      console.log("✅ Set Authorization header");
 
       // Update state
-      setUser(fakeUser);
+      setUser(userData);
       setIsAuthenticated(true);
 
-      console.log("✅ Test login successful as:", finalUserType);
+      console.log("✅ Test login successful as:", userType);
       return { success: true };
     } catch (error) {
-      console.error("Test login error:", error);
-      return { success: false, error: error.message };
+      console.error(
+        "❌ Test login error:",
+        error.response?.data || error.message,
+      );
+      return {
+        success: false,
+        error:
+          error.response?.data?.error || "Test login failed. Please try again.",
+      };
     } finally {
       setLoading(false);
     }

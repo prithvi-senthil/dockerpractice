@@ -16,8 +16,18 @@ api.interceptors.request.use(
     const token = await AsyncStorage.getItem("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log(
+        "🔐 Token found, adding to request:",
+        token.substring(0, 20) + "...",
+      );
+    } else {
+      console.log("⚠️  NO TOKEN FOUND IN ASYNC STORAGE");
     }
     console.log("📤 API Request:", config.method.toUpperCase(), config.url);
+    console.log(
+      "🔑 Auth Header:",
+      config.headers.Authorization ? "SET" : "NOT SET",
+    );
     return config;
   },
   (error) => {
@@ -32,12 +42,28 @@ api.interceptors.response.use(
     console.log("✅ API Response:", response.config.url, response.status);
     return response;
   },
-  (error) => {
+  async (error) => {
     console.error(
       "❌ Response Error:",
       error.response?.status,
       error.response?.data,
     );
+
+    // Handle 401 - clear expired token from AsyncStorage
+    if (error.response?.status === 401) {
+      console.warn(
+        "⚠️  401 Unauthorized - Token may be expired. Clearing auth data.",
+      );
+      try {
+        await AsyncStorage.removeItem("token");
+        await AsyncStorage.removeItem("user");
+        delete api.defaults.headers.common["Authorization"];
+        console.log("✅ Cleared expired token from storage");
+      } catch (err) {
+        console.error("❌ Error clearing token:", err);
+      }
+    }
+
     return Promise.reject(error);
   },
 );
