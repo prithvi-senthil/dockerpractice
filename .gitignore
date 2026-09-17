@@ -165,7 +165,7 @@ backend/.cache/
 # =====================================================
 # DOCKER & DEPLOYMENT
 # =====================================================
-.dockerignore
+# .dockerignore
 .docker/
 docker-compose.override.yml
 **/.docker-volume/
